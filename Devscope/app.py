@@ -4,7 +4,7 @@ from flask import Flask, request, jsonify, render_template, session, send_file, 
 from groq import Groq
 from tavily import TavilyClient
 from database import get_connection, init_db
-from config import GROQ_API_KEY, TAVILY_API_KEY, SECRET_KEY , GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+from config import GROQ_API_KEY, TAVILY_API_KEY, SECRET_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
@@ -25,7 +25,44 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 tavily = TavilyClient(api_key=TAVILY_API_KEY)
 MODEL = "llama-3.3-70b-versatile"
 
-# ── SYSTEM PROMPTS ─────────────────────────────────────────────────────────
+# ── MODE CONSTANTS ──────────────────────────────────────────────────────────
+MODE_FOUNDER = "founder"
+MODE_RESEARCHER = "researcher"
+
+# ── MODE DETECTION ──────────────────────────────────────────────────────────
+
+RESEARCHER_SIGNALS = [
+    r"should (i|we) add .+ (to|in|for) .+",
+    r"is .+ (feature|needed|necessary|required|worth it)",
+    r"(do|does) .+ need .+ feature",
+    r"(researching|analyzing|evaluating|investigating) .+",
+    r"would .+ (work|make sense|be useful) in .+",
+    r"(pros|cons|tradeoffs|trade.?offs) of .+",
+    r"is it (worth|necessary|important|essential) to (add|build|implement)",
+    r"(react|next\.?js|vue|flutter|node|django|rails|laravel|swift|kotlin|postgres|mongo)\b.*(app|feature|build)",
+    r"(app|feature|build).*(react|next\.?js|vue|flutter|node|django|rails|laravel|swift|kotlin|postgres|mongo)\b",
+]
+
+def detect_mode(message: str) -> str:
+    """
+    Returns MODE_RESEARCHER or MODE_FOUNDER based on message content.
+    Researcher signals: asking about a feature generically, mentioning a stack
+    before any product context, or using research-style phrasing.
+    """
+    msg = message.lower().strip()
+    for pattern in RESEARCHER_SIGNALS:
+        if re.search(pattern, msg):
+            return MODE_RESEARCHER
+    return MODE_FOUNDER
+
+def get_session_mode() -> str:
+    return session.get("devscope_mode", MODE_FOUNDER)
+
+def set_session_mode(mode: str):
+    session["devscope_mode"] = mode
+
+# ── SYSTEM PROMPTS ──────────────────────────────────────────────────────────
+
 SYSTEM_PROMPT = """
 You are DevScope — a brutally honest senior dev mentor. You've built and watched startups fail. You don't waste words. You are NOT a chatbot. You are an advisor who challenges, pushes back, and helps founders think clearly.
 COMPETITOR SANITY CHECK: Before naming any competitor, ask yourself: "Does this product serve the same users solving the same problem?" If NO — do not name it.
@@ -167,6 +204,7 @@ OPTIONS ATTEMPT RULE:
 At exchanges 2-7, always TRY to generate options first.
 Only skip if you genuinely cannot make them specific to this app.
 When in doubt — generate them. Specific beats generic, generic beats nothing.
+
 ═══════════════════════════════════════════════════
 MARKET INFERENCE
 ═══════════════════════════════════════════════════
@@ -262,6 +300,106 @@ GENERATE_REPORT_NOW — OUTPUT ONLY THIS JSON. NO TEXT BEFORE. NO TEXT AFTER. NO
   "disclaimer": "AI-generated advice. Validate with real users before building."
 }
 """
+
+# ── RESEARCHER MODE SYSTEM PROMPT ────────────────────────────────────────────
+
+RESEARCHER_SYSTEM_PROMPT = """
+You are DevScope in Researcher Mode — a senior engineer with 10+ years shipping production apps across multiple domains.
+A developer or technical researcher is asking you to analyze whether a specific feature makes sense for a specific type of app.
+They are NOT pitching their own startup — they want objective, technical, evidence-based analysis.
+
+YOUR ROLE:
+- Be a neutral technical advisor, not a challenger
+- Give a structured, evidence-backed opinion
+- Reference real apps that have or haven't implemented this feature and what happened
+- Be specific about tradeoffs, not vague
+
+═══════════════════════════════════════════════════
+CONVERSATION FLOW FOR RESEARCHER MODE
+═══════════════════════════════════════════════════
+You need to gather enough context to give a precise analysis. Ask ONE question at a time.
+
+If the feature and app type are clear from the first message → skip to analysis immediately.
+If context is missing → ask for ONLY what you need:
+1. What type of app? (if not specified)
+2. Who are the end users? (if not specified)
+3. What stack are they evaluating for? (if relevant to implementation)
+
+Once you have enough → say: "I have enough context. GENERATE_FEATURE_REPORT_NOW"
+
+PERSONALITY IN RESEARCHER MODE:
+- Measured, technical, evidence-based
+- Reference real implementations: "Spotify tried X and found Y"
+- Name specific libraries, APIs, patterns
+- Give a clear VERDICT: BUILD IT / SKIP IT / BUILD LATER
+- Max 4 sentences per response before report
+- ONE clarifying question at a time
+- Never say "Great question" or any filler
+
+AUTO-TRIGGER REPORT:
+After 3-5 exchanges (or sooner if context is clear), say exactly:
+"Hit the Generate Feature Research Report button below."
+Or output: GENERATE_FEATURE_REPORT_NOW
+
+GENERATE_FEATURE_REPORT_NOW — OUTPUT ONLY THIS JSON. NO TEXT BEFORE. NO TEXT AFTER. NO MARKDOWN:
+{
+  "feature_name": "exact feature name",
+  "app_type": "type of app being researched",
+  "target_users": "who uses this app",
+  "stack": "stack mentioned or Not specified",
+  "verdict": "BUILD IT / SKIP IT / BUILD LATER",
+  "verdict_reason": "one brutal honest sentence on why",
+  "confidence_score": 78,
+  "should_build": {
+    "reasons": ["reason 1 tied to specific user need", "reason 2", "reason 3"],
+    "apps_that_did_it_right": [
+      {
+        "app": "App name",
+        "how_they_did_it": "specific implementation detail",
+        "result": "what happened — retention, revenue, drop-off"
+      }
+    ]
+  },
+  "should_not_build": {
+    "reasons": ["reason 1", "reason 2", "reason 3"],
+    "apps_that_got_burned": [
+      {
+        "app": "App name",
+        "what_went_wrong": "specific failure detail",
+        "lesson": "what to take from it"
+      }
+    ]
+  },
+  "complexity": {
+    "effort": "Low / Medium / High",
+    "time_estimate": "realistic solo dev estimate",
+    "frontend": "what needs to be built on frontend",
+    "backend": "what needs to be built on backend",
+    "database": "schema changes needed",
+    "third_party": "APIs or services needed"
+  },
+  "alternatives": [
+    {
+      "name": "alternative feature or approach",
+      "why_better": "specific reason this might serve the same need better",
+      "tradeoff": "what you lose vs the original feature"
+    }
+  ],
+  "best_libraries": [
+    {
+      "name": "library or tool name",
+      "why": "why this is the best fit",
+      "stack_fit": "which stacks this works best with"
+    }
+  ],
+  "build_conditions": "exact conditions under which you SHOULD build this — user threshold, market, data volume, etc.",
+  "skip_conditions": "exact conditions under which you should NOT build this — team size, timeline, user stage",
+  "week1_implementation": "if they decide to build it, what does week 1 look like exactly",
+  "starter_prompt": "A ready-to-paste Claude/Cursor prompt for implementing this feature. Include: feature name, stack, acceptance criteria, edge cases, what done looks like.",
+  "disclaimer": "AI-generated analysis. Validate with real users and engineers before committing."
+}
+"""
+
 FEATURE_ANALYSIS_PROMPT = """
 You are a senior developer doing a deep technical analysis of a specific app feature.
 Be direct, specific, and actionable. No fluff.
@@ -443,7 +581,7 @@ def parse_json_response(raw):
         raw = match.group(0)
     return json.loads(raw)
 
-# ── COMPETITOR SEARCH ────────────────────────────────────────────────────────
+# ── COMPETITOR / FEATURE SEARCH ───────────────────────────────────────────────
 
 def search_competitors(app_idea):
     try:
@@ -471,15 +609,27 @@ def search_feature_context(feature_name, app_context):
         print(f"Tavily feature search error: {e}")
         return ""
 
-# ── ASYNC FEATURE ANALYSIS ───────────────────────────────────────────────────
+def search_feature_research(feature_name, app_type):
+    """Search for real-world examples of feature implementations for researcher mode."""
+    try:
+        results = tavily.search(
+            query=f"{feature_name} feature {app_type} apps implementation examples user feedback",
+            max_results=5,
+            search_depth="basic"
+        )
+        snippets = [r.get("content", "") for r in results.get("results", [])]
+        return "\n".join(snippets[:3])
+    except Exception as e:
+        print(f"Tavily research search error: {e}")
+        return ""
+
+# ── ASYNC FEATURE ANALYSIS ────────────────────────────────────────────────────
 
 feature_analysis_cache = {}
 
 def analyze_feature_async(report_id, feature, app_context, stack):
-    """Run feature deep analysis in background thread"""
     try:
         web_context = search_feature_context(feature['name'], app_context)
-
         messages = [
             {"role": "system", "content": FEATURE_ANALYSIS_PROMPT},
             {"role": "user", "content": f"""
@@ -492,7 +642,6 @@ Web research: {web_context}
 Analyze this feature deeply and return the JSON.
             """}
         ]
-
         raw = call_groq(messages, max_tokens=1500)
         analysis = parse_json_response(raw)
 
@@ -522,13 +671,10 @@ Analyze this feature deeply and return the JSON.
 
     except Exception as e:
         cache_key = f"{report_id}_{feature['name']}"
-        feature_analysis_cache[cache_key] = {
-            "status": "error",
-            "error": str(e)
-        }
+        feature_analysis_cache[cache_key] = {"status": "error", "error": str(e)}
         print(f"Feature analysis error for {feature['name']}: {e}")
 
-# ── IN-APP NOTIFICATIONS ─────────────────────────────────────────────────────
+# ── IN-APP NOTIFICATIONS ──────────────────────────────────────────────────────
 
 def check_due_deadlines():
     try:
@@ -566,7 +712,7 @@ def check_due_deadlines():
         print(f"Deadline check error: {e}")
         return []
 
-# ── PDF GENERATOR ────────────────────────────────────────────────────────────
+# ── PDF GENERATOR (FOUNDER REPORT) ───────────────────────────────────────────
 
 def generate_pdf(report_data):
     buffer = io.BytesIO()
@@ -577,12 +723,12 @@ def generate_pdf(report_data):
     )
 
     accent = colors.HexColor("#4f9eff")
-    accent2 = colors.HexColor("#7c3aed")
     dark = colors.HexColor("#0a0a0a")
     grey = colors.HexColor("#555555")
     light_grey = colors.HexColor("#f4f4f4")
     danger = colors.HexColor("#ef4444")
     success = colors.HexColor("#10b981")
+    warning_color = colors.HexColor("#f59e0b")
 
     title_style = ParagraphStyle('Title', fontSize=24, textColor=accent,
                                   fontName='Helvetica-Bold', spaceAfter=4, alignment=TA_CENTER)
@@ -648,15 +794,10 @@ def generate_pdf(report_data):
         for f in report_data["features"]:
             cut = f.get("cut_or_keep", "KEEP") == "CUT"
             name_style = warning_style if cut else feature_name_style
-            story.append(Paragraph(
-                f"{'❌ CUT: ' if cut else '✅ '}{f['name']}",
-                name_style
-            ))
+            story.append(Paragraph(f"{'❌ CUT: ' if cut else '✅ '}{f['name']}", name_style))
             story.append(Paragraph(f"Why: {f['why']}", body_style))
             story.append(Paragraph(
-                f"Difficulty: {f['difficulty']}  |  Efficiency: {f['efficiency']}%",
-                mono_style
-            ))
+                f"Difficulty: {f['difficulty']}  |  Efficiency: {f['efficiency']}%", mono_style))
             story.append(Paragraph(f"Competitor Gap: {f['competitor_gap']}", mono_style))
             if f.get("risk"):
                 story.append(Paragraph(f"⚠ Risk: {f['risk']}", mono_style))
@@ -666,13 +807,9 @@ def generate_pdf(report_data):
                 story.append(Paragraph(f"Deadline: {f['deadline']}", mono_style))
             if f.get("suggested_additions"):
                 story.append(Paragraph(
-                    f"Consider adding: {', '.join(f['suggested_additions'])}",
-                    mono_style
-                ))
-            story.append(HRFlowable(
-                width="100%", thickness=0.5,
-                color=colors.HexColor("#e0e0e0"), spaceAfter=10
-            ))
+                    f"Consider adding: {', '.join(f['suggested_additions'])}", mono_style))
+            story.append(HRFlowable(width="100%", thickness=0.5,
+                color=colors.HexColor("#e0e0e0"), spaceAfter=10))
 
     if report_data.get("missing_features"):
         story.append(Paragraph("FEATURES YOU DIDN'T MENTION (BUT SHOULD)", section_style))
@@ -716,10 +853,8 @@ def generate_pdf(report_data):
             if analysis.get("build_steps"):
                 for i, step in enumerate(analysis["build_steps"], 1):
                     story.append(Paragraph(f"{i}. {step}", mono_style))
-            story.append(HRFlowable(
-                width="100%", thickness=0.5,
-                color=colors.HexColor("#e0e0e0"), spaceAfter=8
-            ))
+            story.append(HRFlowable(width="100%", thickness=0.5,
+                color=colors.HexColor("#e0e0e0"), spaceAfter=8))
 
     if report_data.get("build_prompt"):
         story.append(Paragraph("CLAUDE BUILD PROMPT", section_style))
@@ -727,24 +862,188 @@ def generate_pdf(report_data):
         story.append(Paragraph(report_data["build_prompt"], mono_style))
 
     story.append(Spacer(1, 20))
-    story.append(HRFlowable(
-        width="100%", thickness=0.5,
-        color=colors.HexColor("#e0e0e0"), spaceAfter=10
-    ))
-    disclaimer_style = ParagraphStyle(
-        'Disclaimer', fontSize=9, textColor=grey,
-        fontName='Helvetica-Oblique', alignment=TA_CENTER
-    )
+    story.append(HRFlowable(width="100%", thickness=0.5,
+        color=colors.HexColor("#e0e0e0"), spaceAfter=10))
+    disclaimer_style = ParagraphStyle('Disclaimer', fontSize=9, textColor=grey,
+        fontName='Helvetica-Oblique', alignment=TA_CENTER)
     story.append(Paragraph(
         report_data.get("disclaimer", "AI-generated advice. Validate with real users."),
-        disclaimer_style
-    ))
+        disclaimer_style))
 
     doc.build(story)
     buffer.seek(0)
     return buffer
 
-# ── ROUTES ───────────────────────────────────────────────────────────────────
+# ── PDF GENERATOR (FEATURE RESEARCH REPORT) ──────────────────────────────────
+
+def generate_feature_research_pdf(report_data):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        rightMargin=0.75*inch, leftMargin=0.75*inch,
+        topMargin=0.75*inch, bottomMargin=0.75*inch
+    )
+
+    accent = colors.HexColor("#7c3aed")
+    accent2 = colors.HexColor("#4f9eff")
+    dark = colors.HexColor("#0a0a0a")
+    grey = colors.HexColor("#555555")
+    light_grey = colors.HexColor("#f4f4f4")
+    danger = colors.HexColor("#ef4444")
+    success = colors.HexColor("#10b981")
+    warning_color = colors.HexColor("#f59e0b")
+
+    title_style = ParagraphStyle('Title', fontSize=22, textColor=accent,
+                                  fontName='Helvetica-Bold', spaceAfter=4, alignment=TA_CENTER)
+    sub_style = ParagraphStyle('Sub', fontSize=10, textColor=grey,
+                                fontName='Helvetica', spaceAfter=20, alignment=TA_CENTER)
+    section_style = ParagraphStyle('Section', fontSize=9, textColor=grey,
+                                    fontName='Helvetica-Bold', spaceBefore=18, spaceAfter=8)
+    body_style = ParagraphStyle('Body', fontSize=11, textColor=dark,
+                                 fontName='Helvetica', spaceAfter=8, leading=16)
+    feature_name_style = ParagraphStyle('FName', fontSize=14, textColor=dark,
+                                         fontName='Helvetica-Bold', spaceAfter=4)
+    mono_style = ParagraphStyle('Mono', fontSize=9, textColor=grey,
+                                 fontName='Courier', spaceAfter=6, leading=14)
+    verdict_build = ParagraphStyle('VerdictBuild', fontSize=18, textColor=success,
+                                    fontName='Helvetica-Bold', spaceAfter=6, alignment=TA_CENTER)
+    verdict_skip = ParagraphStyle('VerdictSkip', fontSize=18, textColor=danger,
+                                   fontName='Helvetica-Bold', spaceAfter=6, alignment=TA_CENTER)
+    verdict_later = ParagraphStyle('VerdictLater', fontSize=18, textColor=warning_color,
+                                    fontName='Helvetica-Bold', spaceAfter=6, alignment=TA_CENTER)
+    warning_style = ParagraphStyle('Warning', fontSize=10, textColor=danger,
+                                    fontName='Helvetica-Bold', spaceAfter=6)
+    success_style = ParagraphStyle('Success', fontSize=10, textColor=success,
+                                    fontName='Helvetica-Bold', spaceAfter=6)
+
+    story = []
+
+    story.append(Paragraph("🔬 DevScope Feature Research Report", title_style))
+    story.append(Paragraph(f"Generated {datetime.now().strftime('%B %d, %Y at %H:%M')}", sub_style))
+    story.append(HRFlowable(width="100%", thickness=2, color=accent, spaceAfter=16))
+
+    # Header info
+    if report_data.get("feature_name"):
+        story.append(Paragraph("FEATURE UNDER ANALYSIS", section_style))
+        story.append(Paragraph(report_data["feature_name"], feature_name_style))
+
+    if report_data.get("app_type"):
+        story.append(Paragraph(f"App Type: {report_data['app_type']}", mono_style))
+    if report_data.get("target_users"):
+        story.append(Paragraph(f"Target Users: {report_data['target_users']}", mono_style))
+    if report_data.get("stack") and report_data["stack"] != "Not specified":
+        story.append(Paragraph(f"Stack: {report_data['stack']}", mono_style))
+
+    # Verdict — big and bold
+    verdict = report_data.get("verdict", "")
+    verdict_style_map = {
+        "BUILD IT": verdict_build,
+        "SKIP IT": verdict_skip,
+        "BUILD LATER": verdict_later
+    }
+    v_style = verdict_style_map.get(verdict, verdict_build)
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(f"VERDICT: {verdict}", v_style))
+    confidence = report_data.get("confidence_score", 0)
+    story.append(Paragraph(f"Confidence: {confidence}%", sub_style))
+
+    if report_data.get("verdict_reason"):
+        story.append(Paragraph(report_data["verdict_reason"], body_style))
+
+    story.append(HRFlowable(width="100%", thickness=1, color=accent, spaceAfter=12))
+
+    # Why you SHOULD build it
+    should = report_data.get("should_build", {})
+    if should.get("reasons"):
+        story.append(Paragraph("✅ REASONS TO BUILD IT", section_style))
+        for r in should["reasons"]:
+            story.append(Paragraph(f"• {r}", body_style))
+
+    if should.get("apps_that_did_it_right"):
+        story.append(Paragraph("Apps that did it right:", mono_style))
+        for app_ex in should["apps_that_did_it_right"]:
+            story.append(Paragraph(
+                f"→ {app_ex['app']}: {app_ex['how_they_did_it']} — {app_ex['result']}", mono_style))
+
+    # Why you SHOULD NOT build it
+    should_not = report_data.get("should_not_build", {})
+    if should_not.get("reasons"):
+        story.append(Paragraph("❌ REASONS TO SKIP IT", section_style))
+        for r in should_not["reasons"]:
+            story.append(Paragraph(f"• {r}", body_style))
+
+    if should_not.get("apps_that_got_burned"):
+        story.append(Paragraph("Apps that got burned:", mono_style))
+        for app_ex in should_not["apps_that_got_burned"]:
+            story.append(Paragraph(
+                f"→ {app_ex['app']}: {app_ex['what_went_wrong']} — Lesson: {app_ex['lesson']}",
+                mono_style))
+
+    # Build conditions
+    if report_data.get("build_conditions"):
+        story.append(Paragraph("BUILD IF:", section_style))
+        story.append(Paragraph(report_data["build_conditions"], body_style))
+
+    if report_data.get("skip_conditions"):
+        story.append(Paragraph("SKIP IF:", section_style))
+        story.append(Paragraph(report_data["skip_conditions"], body_style))
+
+    # Complexity
+    complexity = report_data.get("complexity", {})
+    if complexity:
+        story.append(Paragraph("IMPLEMENTATION COMPLEXITY", section_style))
+        story.append(Paragraph(
+            f"Effort: {complexity.get('effort','—')}  |  Time: {complexity.get('time_estimate','—')}",
+            mono_style))
+        if complexity.get("frontend"):
+            story.append(Paragraph(f"Frontend: {complexity['frontend']}", mono_style))
+        if complexity.get("backend"):
+            story.append(Paragraph(f"Backend: {complexity['backend']}", mono_style))
+        if complexity.get("database"):
+            story.append(Paragraph(f"Database: {complexity['database']}", mono_style))
+        if complexity.get("third_party"):
+            story.append(Paragraph(f"Third-party: {complexity['third_party']}", mono_style))
+
+    # Alternatives
+    alternatives = report_data.get("alternatives", [])
+    if alternatives:
+        story.append(Paragraph("ALTERNATIVES TO CONSIDER", section_style))
+        for alt in alternatives:
+            story.append(Paragraph(f"→ {alt['name']}", feature_name_style))
+            story.append(Paragraph(f"Why better: {alt['why_better']}", body_style))
+            story.append(Paragraph(f"Tradeoff: {alt['tradeoff']}", mono_style))
+
+    # Best libraries
+    libs = report_data.get("best_libraries", [])
+    if libs:
+        story.append(Paragraph("BEST LIBRARIES & TOOLS", section_style))
+        for lib in libs:
+            story.append(Paragraph(f"• {lib['name']} — {lib['why']} (Best for: {lib['stack_fit']})", mono_style))
+
+    # Week 1 implementation
+    if report_data.get("week1_implementation"):
+        story.append(Paragraph("WEEK 1 IMPLEMENTATION (IF YOU GO AHEAD)", section_style))
+        story.append(Paragraph(report_data["week1_implementation"], body_style))
+
+    # Starter prompt
+    if report_data.get("starter_prompt"):
+        story.append(Paragraph("READY-TO-PASTE CLAUDE/CURSOR PROMPT", section_style))
+        story.append(Paragraph(report_data["starter_prompt"], mono_style))
+
+    story.append(Spacer(1, 20))
+    story.append(HRFlowable(width="100%", thickness=0.5,
+        color=colors.HexColor("#e0e0e0"), spaceAfter=10))
+    disclaimer_style = ParagraphStyle('Disclaimer', fontSize=9, textColor=grey,
+        fontName='Helvetica-Oblique', alignment=TA_CENTER)
+    story.append(Paragraph(
+        report_data.get("disclaimer", "AI-generated analysis. Validate before committing."),
+        disclaimer_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+# ── ROUTES ────────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -771,25 +1070,88 @@ def main_app():
 
     return render_template("index.html", pendo_visitor=pendo_visitor)
 
+# ── MODE SWITCH ROUTE ─────────────────────────────────────────────────────────
+
+@app.route("/mode", methods=["POST"])
+def switch_mode():
+    """
+    Manually switch between founder and researcher mode.
+    Expects: { mode: "founder" | "researcher" }
+    """
+    data = request.json
+    mode = data.get("mode", MODE_FOUNDER)
+    if mode not in [MODE_FOUNDER, MODE_RESEARCHER]:
+        return jsonify({"error": "Invalid mode"}), 400
+
+    set_session_mode(mode)
+    session_id = get_or_create_session()
+
+    # Clear chat history when switching modes so context doesn't bleed
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM messages WHERE session_id = %s", (session_id,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    greeting = {
+        MODE_FOUNDER: "Founder mode. No small talk — what are you building?",
+        MODE_RESEARCHER: "Researcher mode. What feature are you evaluating, and for what type of app?"
+    }
+
+    return jsonify({
+        "mode": mode,
+        "greeting": greeting[mode],
+        "session_id": session_id
+    })
+
+@app.route("/mode", methods=["GET"])
+def get_mode():
+    return jsonify({"mode": get_session_mode()})
+
+# ── MAIN CHAT ROUTE ───────────────────────────────────────────────────────────
+
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
         data = request.json
         user_message = data.get("message", "")
+        # Allow frontend to force a mode, otherwise auto-detect on first message
+        forced_mode = data.get("mode")
         session_id = get_or_create_session()
-
         history = get_messages(session_id)
 
-        competitor_context = ""
+        # ── MODE DETECTION ──
+        current_mode = get_session_mode()
+        if forced_mode and forced_mode in [MODE_FOUNDER, MODE_RESEARCHER]:
+            current_mode = forced_mode
+            set_session_mode(current_mode)
+        elif len(history) == 0:
+            # First message — auto-detect
+            detected = detect_mode(user_message)
+            if detected != current_mode:
+                current_mode = detected
+                set_session_mode(current_mode)
+
+        # ── SYSTEM PROMPT SELECTION ──
+        system_prompt = RESEARCHER_SYSTEM_PROMPT if current_mode == MODE_RESEARCHER else SYSTEM_PROMPT
+
+        # ── WEB SEARCH (for early messages) ──
+        web_context = ""
         if len(history) < 6 and len(user_message) > 15:
-            competitor_data = search_competitors(user_message)
-            if competitor_data:
-                competitor_context = (
-                    f"\n\n[LIVE COMPETITOR RESEARCH — use these specific weaknesses in your response]:\n"
-                    f"{competitor_data}\n"
-                    f"Extract specific pain points, negative reviews, and gaps users complain about. "
-                    f"Reference these directly when naming competitors."
+            if current_mode == MODE_RESEARCHER:
+                # Extract feature + app type for targeted search
+                web_context_raw = search_feature_research(user_message, "")
+            else:
+                web_context_raw = search_competitors(user_message)
+
+            if web_context_raw:
+                label = (
+                    "[LIVE FEATURE RESEARCH — use these real-world examples in your analysis]:\n"
+                    if current_mode == MODE_RESEARCHER
+                    else "[LIVE COMPETITOR RESEARCH — use these specific weaknesses in your response]:\n"
                 )
+                web_context = f"\n\n{label}{web_context_raw}\n"
 
         save_message(session_id, "user", user_message)
         history = get_messages(session_id)
@@ -797,36 +1159,48 @@ def chat():
         if len(history) == 1:
             update_session_title(session_id, user_message)
 
-        # Inject recent context so model tracks conversation properly
+        # Inject recent context
         context_note = ""
         if len(history) > 2:
             context_note = "\n\n[CONVERSATION HISTORY — read before responding, do NOT repeat what's already been asked]:\n"
-            context_note += "\n".join([f"{m['role'].upper()}: {m['content'][:300]}" for m in history[-6:]])
+            context_note += "\n".join(
+                [f"{m['role'].upper()}: {m['content'][:300]}" for m in history[-6:]]
+            )
 
-        messages = [{"role": "system", "content": SYSTEM_PROMPT + context_note}]
+        messages = [{"role": "system", "content": system_prompt + context_note}]
         for i, m in enumerate(history):
             role = "assistant" if m["role"] == "assistant" else "user"
             content = m["content"]
-            if i == len(history) - 1 and competitor_context:
-                content += competitor_context
+            if i == len(history) - 1 and web_context:
+                content += web_context
             messages.append({"role": role, "content": content})
 
         reply = call_groq(messages)
 
+        # ── JSON LEAK GUARD ──
         is_json_leak = (
             reply.strip().startswith('{') or
             '```json' in reply or
             '"features"' in reply or
             '"persona"' in reply or
-            '"roadmap"' in reply
+            '"roadmap"' in reply or
+            '"verdict"' in reply or
+            '"feature_name"' in reply
         )
 
         if is_json_leak:
-            clean_reply = "Hit the **Generate My Feature Report** button below."
+            if current_mode == MODE_RESEARCHER:
+                clean_reply = "Hit the **Generate Feature Research Report** button below."
+            else:
+                clean_reply = "Hit the **Generate My Feature Report** button below."
             show_report = True
         else:
-            show_report = "SHOW_REPORT_BUTTON" in reply
-            clean_reply = reply.replace("SHOW_REPORT_BUTTON", "").strip()
+            # Check for report triggers
+            show_report = (
+                "SHOW_REPORT_BUTTON" in reply or
+                "GENERATE_FEATURE_REPORT_NOW" in reply
+            )
+            clean_reply = reply.replace("SHOW_REPORT_BUTTON", "").replace("GENERATE_FEATURE_REPORT_NOW", "").strip()
             clean_reply = re.sub(r'PERSONA:\s*[\w\s]+', '', clean_reply).strip()
 
         save_message(session_id, "assistant", clean_reply)
@@ -834,7 +1208,8 @@ def chat():
         return jsonify({
             "reply": clean_reply,
             "show_report": show_report,
-            "session_id": session_id
+            "session_id": session_id,
+            "mode": current_mode  # Always return current mode so frontend can update UI
         })
     except Exception as e:
         print(f"CHAT ERROR: {e}")
@@ -844,6 +1219,8 @@ def chat():
 def logout():
     session.clear()
     return jsonify({'ok': True})
+
+# ── FOUNDER REPORT ROUTE ──────────────────────────────────────────────────────
 
 @app.route("/report", methods=["POST"])
 def generate_report():
@@ -886,12 +1263,12 @@ def generate_report():
             )
             thread.start()
 
-        # Determine if we need to ask for stack before deep dive
         stack_known = stack and stack.lower() not in ["not specified", "unknown", ""]
 
         return jsonify({
             "report": report_data,
             "report_id": report_id,
+            "report_type": "founder",
             "deep_dive_ready": True,
             "stack_known": stack_known,
             "stack": stack if stack_known else None
@@ -900,17 +1277,78 @@ def generate_report():
         print(f"REPORT ERROR: {e}")
         return jsonify({"error": "Something went wrong generating the report."}), 500
 
+# ── FEATURE RESEARCH REPORT ROUTE ────────────────────────────────────────────
+
+@app.route("/feature-report", methods=["POST"])
+def generate_feature_report():
+    """
+    Generates a Feature Research Report for Researcher mode.
+    Reads the current conversation and produces a structured feature analysis JSON.
+    """
+    try:
+        session_id = get_or_create_session()
+        history = get_messages(session_id)
+        conversation = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in history])
+
+        # Pull any feature/app context we can from conversation
+        web_context = ""
+        try:
+            # Try to extract feature name from conversation for targeted search
+            feature_match = re.search(
+                r"(feature|adding|build|implement)[:\s]+([a-z\s]+?)(?:\s+(?:to|in|for)\s+([a-z\s]+))?[\.,\?]",
+                conversation.lower()
+            )
+            if feature_match:
+                feature_hint = feature_match.group(2).strip()
+                app_hint = feature_match.group(3).strip() if feature_match.group(3) else ""
+                web_context = search_feature_research(feature_hint, app_hint)
+        except Exception:
+            pass
+
+        messages = [
+            {"role": "system", "content": RESEARCHER_SYSTEM_PROMPT},
+            {"role": "user", "content": (
+                f"Here is the full conversation:\n{conversation}\n\n"
+                f"Live research context:\n{web_context}\n\n"
+                f"GENERATE_FEATURE_REPORT_NOW"
+            )}
+        ]
+
+        raw = call_groq(messages, max_tokens=3000)
+
+        try:
+            report_data = parse_json_response(raw)
+        except Exception as parse_err:
+            print(f"FEATURE REPORT JSON PARSE ERROR: {parse_err}\nRAW: {raw}")
+            return jsonify({"error": "Failed to parse feature report. Try again."}), 500
+
+        report_id = str(uuid.uuid4())
+        # Tag it as a feature research report so download route knows which PDF to generate
+        report_data["_report_type"] = "feature_research"
+
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO reports (id, session_id, report_json) VALUES (%s, %s, %s)",
+            (report_id, session_id, json.dumps(report_data))
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+            "report": report_data,
+            "report_id": report_id,
+            "report_type": "feature_research"
+        })
+    except Exception as e:
+        print(f"FEATURE REPORT ERROR: {e}")
+        return jsonify({"error": "Something went wrong generating the feature report."}), 500
 
 # ── DEEP DIVE ─────────────────────────────────────────────────────────────────
 
 @app.route("/deep-dive/start", methods=["POST"])
 def start_deep_dive():
-    """
-    Kicks off a deep dive conversation for the features in the report.
-    Expects: { report_id, stack (optional override) }
-    Returns: { reply, session_id, stack_needed }
-    The reply is also saved to chat history so /chat continues naturally.
-    """
     try:
         data = request.json
         report_id = data.get("report_id")
@@ -972,8 +1410,6 @@ After each feature breakdown, always end with:
         ]
 
         reply = call_groq(messages, max_tokens=1200)
-
-        # Save to chat so /chat continues the conversation naturally
         save_message(session_id, "assistant", reply)
 
         return jsonify({
@@ -986,15 +1422,8 @@ After each feature breakdown, always end with:
         print(f"DEEP DIVE START ERROR: {e}")
         return jsonify({"error": str(e)}), 500
 
-
 @app.route("/deep-dive/next", methods=["POST"])
 def deep_dive_next():
-    """
-    Continues the deep dive. The user's response ("Go deeper", "Next feature", etc.)
-    goes through the normal /chat route — this endpoint is just for injecting
-    a stack confirmation before the dive starts.
-    Expects: { report_id, stack }
-    """
     try:
         data = request.json
         report_id = data.get("report_id")
@@ -1003,7 +1432,6 @@ def deep_dive_next():
         if not report_id or not confirmed_stack:
             return jsonify({"error": "report_id and stack required"}), 400
 
-        # Update report with confirmed stack
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT report_json FROM reports WHERE id = %s", (report_id,))
@@ -1019,16 +1447,13 @@ def deep_dive_next():
         cursor.close()
         conn.close()
 
-        # Now start the dive with the confirmed stack
         return start_deep_dive_with(report_id, confirmed_stack)
 
     except Exception as e:
         print(f"DEEP DIVE NEXT ERROR: {e}")
         return jsonify({"error": str(e)}), 500
 
-
 def start_deep_dive_with(report_id, stack):
-    """Internal helper — runs the deep dive with a confirmed stack."""
     session_id = get_or_create_session()
 
     conn = get_connection()
@@ -1075,8 +1500,7 @@ After each feature always end with:
         "stack_needed": False
     })
 
-
-# ── REMAINING ROUTES (unchanged) ──────────────────────────────────────────────
+# ── REMAINING ROUTES ──────────────────────────────────────────────────────────
 
 @app.route("/report/<report_id>/feature-analysis", methods=["GET"])
 def get_feature_analysis(report_id):
@@ -1158,13 +1582,22 @@ def download_report(report_id):
         conn.close()
         if not row:
             return "Report not found", 404
+
         report_data = json.loads(row[0])
-        pdf_buffer = generate_pdf(report_data)
+
+        # Route to correct PDF generator based on report type
+        if report_data.get("_report_type") == "feature_research":
+            pdf_buffer = generate_feature_research_pdf(report_data)
+            filename = f'devscope-feature-research-{report_id[:8]}.pdf'
+        else:
+            pdf_buffer = generate_pdf(report_data)
+            filename = f'devscope-report-{report_id[:8]}.pdf'
+
         return send_file(
             pdf_buffer,
             mimetype='application/pdf',
             as_attachment=True,
-            download_name=f'devscope-report-{report_id[:8]}.pdf'
+            download_name=filename
         )
     except Exception as e:
         print(f"PDF ERROR: {e}")
@@ -1311,8 +1744,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 @app.route('/register', methods=['POST'])
 def register():
     data = request.json
-    name     = data.get('name', '').strip()
-    email    = data.get('email', '').strip().lower()
+    name = data.get('name', '').strip()
+    email = data.get('email', '').strip().lower()
     password = data.get('password', '')
 
     if not name or not email or len(password) < 8:
@@ -1334,15 +1767,14 @@ def register():
 
 @app.route('/login', methods=['POST'])
 def login():
-    data     = request.json
-    email    = data.get('email', '').strip().lower()
+    data = request.json
+    email = data.get('email', '').strip().lower()
     password = data.get('password', '')
 
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT id, name, password_hash FROM users WHERE email = %s",
-        (email,)
+        "SELECT id, name, password_hash FROM users WHERE email = %s", (email,)
     )
     user = cursor.fetchone()
     cursor.close()
@@ -1351,10 +1783,9 @@ def login():
     if not user or not check_password_hash(user[2], password):
         return jsonify({'ok': False, 'error': 'Invalid email or password'}), 401
 
-    session['user_id']   = user[0]
+    session['user_id'] = user[0]
     session['user_name'] = user[1]
     return jsonify({'ok': True})
-
 
 from authlib.integrations.flask_client import OAuth
 
@@ -1370,7 +1801,6 @@ google = oauth.register(
 @app.route('/auth/google')
 def google_login():
     redirect_uri = url_for('google_callback', _external=True)
-    print("REDIRECT URI BEING SENT:", redirect_uri)  # ← add this
     return google.authorize_redirect(redirect_uri)
 
 @app.route('/auth/google/callback')
@@ -1378,7 +1808,7 @@ def google_callback():
     token = google.authorize_access_token()
     user_info = token['userinfo']
     email = user_info['email']
-    name  = user_info.get('name', email.split('@')[0])
+    name = user_info.get('name', email.split('@')[0])
 
     conn = get_connection()
     cursor = conn.cursor()
@@ -1395,7 +1825,7 @@ def google_callback():
     cursor.close()
     conn.close()
 
-    session['user_id']   = user[0]
+    session['user_id'] = user[0]
     session['user_name'] = user[1]
     return redirect('/app')
 

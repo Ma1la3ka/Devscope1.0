@@ -58,6 +58,10 @@ pendo.initialize({ visitor: { id: 'anonymous' } });
       <button class="menu-btn" id="menuBtn">☰</button>
       <span class="topbar-title">DevScope — Your AI Product Advisor</span>
       <span class="topbar-badge">BETA</span>
+      <div class="mode-toggle" id="modeToggle">
+        <button class="mode-toggle-btn active" data-mode="founder" onclick="setMode('founder')">Founder</button>
+        <button class="mode-toggle-btn" data-mode="researcher" onclick="setMode('researcher')">Researcher</button>
+      </div>
       <button class="theme-toggle" id="themeToggle">🌙</button>
       <button class="logout-btn" onclick="handleLogout()">⏻</button>
     </div>
@@ -103,10 +107,14 @@ pendo.initialize({ visitor: { id: 'anonymous' } });
 
         </div>
 
+        
         <!-- REPORT BAR -->
         <div class="report-bar" id="reportBar" style="display:none;">
-          <button class="generate-report-btn" onclick="generateReport()">
+          <button class="generate-report-btn" id="founderReportBtn" onclick="generateReport()">
             📊 Generate My Feature Report
+          </button>
+          <button class="generate-report-btn" id="researcherReportBtn" style="display:none;" onclick="generateFeatureReport()">
+            🔬 Generate Feature Research Report
           </button>
         </div>
 
@@ -187,6 +195,21 @@ pendo.initialize({ visitor: { id: 'anonymous' } });
       </div>
       <p class="coming-soon">🚀 Coming Soon — <a href="mailto:devscope@gmail.com">Contact us to join waitlist</a></p>
       <button onclick="closeUpgrade()">Close</button>
+    </div>
+  </div>
+
+  <!-- FEATURE RESEARCH REPORT MODAL -->
+  <div class="modal-overlay" id="featureReportModal" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>🔬 Feature Research Report</h2>
+        <div class="modal-actions">
+          <button onclick="downloadFeatureReport()">⬇ PDF</button>
+          <button onclick="copyFeatureReport()">📋 Copy</button>
+          <button onclick="closeFeatureReport()">✕</button>
+        </div>
+      </div>
+      <div class="modal-body" id="featureReportContent"></div>
     </div>
   </div>
 

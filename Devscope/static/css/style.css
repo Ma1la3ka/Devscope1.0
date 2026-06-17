@@ -376,6 +376,43 @@ body::after {
   transition: all 0.2s;
 }
 
+.mode-toggle {
+  display: flex;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+.mode-toggle-btn {
+  background: none;
+  border: none;
+  padding: 5px 12px;
+  border-radius: 18px;
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text3);
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.mode-toggle-btn.active {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(79,158,255,0.3);
+}
+
+.mode-toggle-btn:not(.active):hover {
+  color: var(--text2);
+}
+
+@media (max-width: 768px) {
+  .mode-toggle-btn { padding: 4px 9px; font-size: 10px; }
+}
+
 .menu-btn:hover, .theme-toggle:hover {
   color: var(--text);
   background: var(--bg3);
@@ -1025,6 +1062,20 @@ body::after {
 .badge-easy { background: rgba(16,185,129,0.12); color: var(--success); border: 1px solid rgba(16,185,129,0.25); }
 .badge-medium { background: rgba(245,158,11,0.12); color: var(--warning); border: 1px solid rgba(245,158,11,0.25); }
 .badge-hard { background: rgba(239,68,68,0.12); color: var(--danger); border: 1px solid rgba(239,68,68,0.25); }
+
+.verdict-badge {
+  display: inline-block;
+  padding: 10px 28px;
+  border-radius: 20px;
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.verdict-build { background: rgba(16,185,129,0.12); color: var(--success); border: 1px solid rgba(16,185,129,0.3); }
+.verdict-skip { background: rgba(239,68,68,0.12); color: var(--danger); border: 1px solid rgba(239,68,68,0.3); }
+.verdict-later { background: rgba(245,158,11,0.12); color: var(--warning); border: 1px solid rgba(245,158,11,0.3); }
 
 .efficiency-bar {
   height: 4px;

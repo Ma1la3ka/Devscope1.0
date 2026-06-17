@@ -3,7 +3,9 @@ let reportData = null;
 let currentReportId = null;
 let featureAnalysisInterval = null;
 let notificationInterval = null;
-
+let currentMode = 'founder';
+let featureReportData = null;
+let currentFeatureReportId = null;
 // ── INIT ──────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -48,6 +50,43 @@ function handleKey(e) {
   }
 }
 
+async function setMode(mode) {
+  if (mode === currentMode) return;
+
+  try {
+    const res = await fetch('/mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode })
+    });
+    const data = await res.json();
+    if (data.error) {
+      showToast('Could not switch mode.');
+      return;
+    }
+
+    currentMode = data.mode;
+    currentSessionId = data.session_id;
+    updateModeUI(currentMode);
+
+    document.getElementById('messages').innerHTML = '';
+    document.getElementById('reportBar').style.display = 'none';
+    hideWelcome();
+    appendMessage('assistant', data.greeting);
+    loadSessions();
+  } catch (err) {
+    showToast('Failed to switch mode.');
+  }
+}
+
+function updateModeUI(mode) {
+  document.querySelectorAll('.mode-toggle-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+  document.getElementById('founderReportBtn').style.display = mode === 'founder' ? 'block' : 'none';
+  document.getElementById('researcherReportBtn').style.display = mode === 'researcher' ? 'block' : 'none';
+}
+
 function fillInput(text) {
   const input = document.getElementById('userInput');
   input.value = text;
@@ -80,6 +119,10 @@ async function sendMessage() {
     removeTyping(typing);
     appendMessage('assistant', data.reply);
     if (data.session_id) currentSessionId = data.session_id;
+    if (data.mode && data.mode !== currentMode) {
+      currentMode = data.mode;
+      updateModeUI(currentMode);
+    }
     if (data.show_report) showReportButton();
     loadSessions();
     scrollToBottom();
@@ -168,6 +211,40 @@ if (data.deep_dive_ready) {
   btn.textContent = '📊 Generate My Feature Report';
   btn.disabled = false;
 }
+
+async function generateFeatureReport() {
+  const btn = document.getElementById('researcherReportBtn');
+  btn.textContent = '⏳ Researching feature...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/feature-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: currentSessionId })
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      showToast('Failed to generate feature report. Try again.');
+      btn.textContent = '🔬 Generate Feature Research Report';
+      btn.disabled = false;
+      return;
+    }
+
+    featureReportData = data.report;
+    currentFeatureReportId = data.report_id;
+    renderFeatureReport(data.report);
+    document.getElementById('featureReportModal').style.display = 'flex';
+
+  } catch (err) {
+    showToast('Something went wrong.');
+  }
+
+  btn.textContent = '🔬 Generate Feature Research Report';
+  btn.disabled = false;
+}
+
 // ── DEEP DIVE ─────────────────────────────────────────────────────────────
 
 async function triggerDeepDivePrompt(reportId, stackKnown, stack) {
@@ -734,6 +811,150 @@ function renderReport(r) {
   updateShippedProgress(r);
 }
 
+// DEVELOPER'S REPORT GENERATION
+function renderFeatureReport(r) {
+  const el = document.getElementById('featureReportContent');
+
+  const verdictClass = r.verdict === 'BUILD IT' ? 'verdict-build'
+    : r.verdict === 'SKIP IT' ? 'verdict-skip' : 'verdict-later';
+
+  const shouldBuild = r.should_build || {};
+  const shouldNot = r.should_not_build || {};
+  const complexity = r.complexity || {};
+
+  el.innerHTML = `
+    <div class="report-section">
+      <div class="report-section-title">Feature Under Analysis</div>
+      <div class="disclaimer" style="font-family:var(--font);font-size:14px;font-weight:600;color:var(--text)">
+        ${r.feature_name || '—'}
+      </div>
+      ${r.app_type ? `<div class="feature-gap" style="margin-top:8px">App type: ${r.app_type}</div>` : ''}
+      ${r.target_users ? `<div class="feature-gap">Target users: ${r.target_users}</div>` : ''}
+      ${r.stack && r.stack !== 'Not specified' ? `<div class="feature-gap">Stack: ${r.stack}</div>` : ''}
+    </div>
+
+    <div class="report-section" style="text-align:center">
+      <div class="verdict-badge ${verdictClass}">${r.verdict || '—'}</div>
+      <div class="feature-gap" style="margin-top:8px">Confidence: ${r.confidence_score ?? '—'}%</div>
+      ${r.verdict_reason ? `<p class="feature-why" style="margin-top:10px">${r.verdict_reason}</p>` : ''}
+    </div>
+
+    ${shouldBuild.reasons && shouldBuild.reasons.length ? `
+    <div class="report-section">
+      <div class="report-section-title">✅ Reasons to Build It</div>
+      ${shouldBuild.reasons.map(reason => `<div class="cut-feature-item">• ${reason}</div>`).join('')}
+      ${shouldBuild.apps_that_did_it_right && shouldBuild.apps_that_did_it_right.length ? `
+        <div style="margin-top:10px">
+          ${shouldBuild.apps_that_did_it_right.map(a => `
+            <div class="feature-card" style="margin-bottom:8px">
+              <div class="feature-name">${a.app}</div>
+              <p class="feature-why">${a.how_they_did_it}</p>
+              <div class="feature-gap">Result: ${a.result}</div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    </div>` : ''}
+
+    ${shouldNot.reasons && shouldNot.reasons.length ? `
+    <div class="report-section">
+      <div class="report-section-title">❌ Reasons to Skip It</div>
+      ${shouldNot.reasons.map(reason => `<div class="cut-feature-item">• ${reason}</div>`).join('')}
+      ${shouldNot.apps_that_got_burned && shouldNot.apps_that_got_burned.length ? `
+        <div style="margin-top:10px">
+          ${shouldNot.apps_that_got_burned.map(a => `
+            <div class="feature-card" style="margin-bottom:8px">
+              <div class="feature-name">${a.app}</div>
+              <p class="feature-why">${a.what_went_wrong}</p>
+              <div class="feature-gap">Lesson: ${a.lesson}</div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    </div>` : ''}
+
+    ${r.build_conditions ? `
+    <div class="report-section">
+      <div class="report-section-title">Build If</div>
+      <div class="disclaimer">${r.build_conditions}</div>
+    </div>` : ''}
+
+    ${r.skip_conditions ? `
+    <div class="report-section">
+      <div class="report-section-title">Skip If</div>
+      <div class="disclaimer">${r.skip_conditions}</div>
+    </div>` : ''}
+
+    ${Object.keys(complexity).length ? `
+    <div class="report-section">
+      <div class="report-section-title">Implementation Complexity</div>
+      <div class="feature-gap">Effort: ${complexity.effort || '—'} · Time: ${complexity.time_estimate || '—'}</div>
+      ${complexity.frontend ? `<div class="feature-gap">Frontend: ${complexity.frontend}</div>` : ''}
+      ${complexity.backend ? `<div class="feature-gap">Backend: ${complexity.backend}</div>` : ''}
+      ${complexity.database ? `<div class="feature-gap">Database: ${complexity.database}</div>` : ''}
+      ${complexity.third_party ? `<div class="feature-gap">Third-party: ${complexity.third_party}</div>` : ''}
+    </div>` : ''}
+
+    ${r.alternatives && r.alternatives.length ? `
+    <div class="report-section">
+      <div class="report-section-title">Alternatives to Consider</div>
+      ${r.alternatives.map(alt => `
+        <div class="feature-card" style="margin-bottom:8px">
+          <div class="feature-name">${alt.name}</div>
+          <p class="feature-why">Why better: ${alt.why_better}</p>
+          <div class="feature-gap">Tradeoff: ${alt.tradeoff}</div>
+        </div>
+      `).join('')}
+    </div>` : ''}
+
+    ${r.best_libraries && r.best_libraries.length ? `
+    <div class="report-section">
+      <div class="report-section-title">Best Libraries & Tools</div>
+      ${r.best_libraries.map(lib => `<div class="cut-feature-item">• ${lib.name} — ${lib.why} (${lib.stack_fit})</div>`).join('')}
+    </div>` : ''}
+
+    ${r.week1_implementation ? `
+    <div class="report-section">
+      <div class="report-section-title">Week 1 Implementation</div>
+      <div class="disclaimer">${r.week1_implementation}</div>
+    </div>` : ''}
+
+    ${r.starter_prompt ? `
+    <div class="report-section">
+      <div class="report-section-title">🤖 Starter Prompt</div>
+      <div class="build-prompt-box">${r.starter_prompt}</div>
+      <button class="feature-btn btn-ship" style="margin-top:10px" onclick="copyFeatureStarterPrompt()">
+        📋 Copy Prompt
+      </button>
+    </div>` : ''}
+
+    <div class="disclaimer">
+      ${r.disclaimer || 'AI-generated analysis. Validate before committing.'}
+    </div>
+  `;
+}
+// DEVELOPER'S REPORT GENERATION
+function closeFeatureReport() {
+  document.getElementById('featureReportModal').style.display = 'none';
+}
+
+function downloadFeatureReport() {
+  if (!currentFeatureReportId) return;
+  window.open(`/report/${currentFeatureReportId}/download`, '_blank');
+}
+
+async function copyFeatureReport() {
+  if (!featureReportData) return;
+  await navigator.clipboard.writeText(JSON.stringify(featureReportData, null, 2));
+  showToast('Report copied');
+}
+
+function copyFeatureStarterPrompt() {
+  if (!featureReportData?.starter_prompt) return;
+  navigator.clipboard.writeText(featureReportData.starter_prompt);
+  showToast('✅ Starter prompt copied!');
+}
+
 // ── STATS PANEL ───────────────────────────────────────────────────────────
 
 function updateStatsPanel(r) {
@@ -1124,6 +1345,8 @@ async function deleteSession(id) {
         currentSessionId = null;
         reportData = null;
         currentReportId = null;
+        featureReportData = null;
+        currentFeatureReportId = null;
         document.getElementById('messages').innerHTML = '';
         document.getElementById('welcome').style.display = 'flex';
         document.getElementById('reportBar').style.display = 'none';
@@ -1149,6 +1372,10 @@ document.getElementById('newChatBtn').addEventListener('click', async () => {
     currentSessionId = data.session_id;
     reportData = null;
     currentReportId = null;
+    featureReportData = null;
+    currentFeatureReportId = null;
+    currentMode = 'founder';
+    updateModeUI('founder');
     if (featureAnalysisInterval) {
       clearInterval(featureAnalysisInterval);
       featureAnalysisInterval = null;
@@ -1306,7 +1533,9 @@ function formatDate(d) {
 }
 
 // ── MODAL CLOSE ON OVERLAY ────────────────────────────────────────────────
-
+document.getElementById('featureReportModal').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeFeatureReport();
+});
 document.getElementById('reportModal').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) closeReport();
 });
