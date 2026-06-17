@@ -415,7 +415,7 @@ def call_groq(messages, max_tokens=1024):
             model=MODEL,
             messages=messages,
             max_tokens=max_tokens,
-            temperature=0.7,
+            temperature=0.3,
             timeout=60
         )
         return response.choices[0].message.content
@@ -788,7 +788,13 @@ def chat():
         if len(history) == 1:
             update_session_title(session_id, user_message)
 
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        # Inject recent context so model tracks conversation properly
+        context_note = ""
+        if len(history) > 2:
+            context_note = "\n\n[CONVERSATION HISTORY — read before responding, do NOT repeat what's already been asked]:\n"
+            context_note += "\n".join([f"{m['role'].upper()}: {m['content'][:300]}" for m in history[-6:]])
+
+        messages = [{"role": "system", "content": SYSTEM_PROMPT + context_note}]
         for i, m in enumerate(history):
             role = "assistant" if m["role"] == "assistant" else "user"
             content = m["content"]
