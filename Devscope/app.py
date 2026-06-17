@@ -745,7 +745,22 @@ def index():
 def main_app():
     if 'user_id' not in session:
         return redirect('/')
-    return render_template("index.html")
+
+    pendo_visitor = {'id': session['user_id'], 'name': session.get('user_name', '')}
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT email, created_at FROM users WHERE id = %s", (session['user_id'],))
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if row:
+            pendo_visitor['email'] = row[0]
+            pendo_visitor['createdAt'] = row[1].isoformat() if row[1] else None
+    except Exception:
+        pass
+
+    return render_template("index.html", pendo_visitor=pendo_visitor)
 
 @app.route("/chat", methods=["POST"])
 def chat():
