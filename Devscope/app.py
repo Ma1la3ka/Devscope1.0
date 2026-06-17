@@ -16,6 +16,7 @@ import json
 import re
 import io
 import threading
+import urllib.request
 from datetime import datetime
 
 app = Flask(__name__)
@@ -736,6 +737,35 @@ def generate_pdf(report_data):
     buffer.seek(0)
     return buffer
 
+# ── PENDO SERVER-SIDE TRACKING ────────────────────────────────────────────────
+
+PENDO_TRACK_URL = 'https://data.pendo.io/data/track'
+PENDO_INTEGRATION_KEY = '80916801-ba84-4d7b-850a-436566dcd03e'
+
+def track_pendo_event(event_name, visitor_id, properties=None):
+    """Send a track event to Pendo server-side. Runs in background thread."""
+    try:
+        payload = json.dumps({
+            "type": "track",
+            "event": event_name,
+            "visitorId": visitor_id,
+            "accountId": "system",
+            "timestamp": int(datetime.now().timestamp() * 1000),
+            "properties": properties or {}
+        }).encode('utf-8')
+        req = urllib.request.Request(
+            PENDO_TRACK_URL,
+            data=payload,
+            headers={
+                'Content-Type': 'application/json',
+                'x-pendo-integration-key': PENDO_INTEGRATION_KEY
+            },
+            method='POST'
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        print(f"Pendo track error: {e}")
+
 # ── ROUTES ───────────────────────────────────────────────────────────────────
 
 @app.route("/")
@@ -1370,6 +1400,7 @@ def google_callback():
     cursor = conn.cursor()
     cursor.execute("SELECT id, name FROM users WHERE email = %s", (email,))
     user = cursor.fetchone()
+    is_new_user = user is None
     if not user:
         cursor.execute(
             "INSERT INTO users (name, email, password_hash) VALUES (%s, %s, %s)",
@@ -1383,6 +1414,14 @@ def google_callback():
 
     session['user_id']   = user[0]
     session['user_name'] = user[1]
+    threading.Thread(
+        target=track_pendo_event,
+        args=('google_oauth_completed', str(user[0]), {
+            'is_new_user': is_new_user,
+            'email_domain': email.split('@')[1] if '@' in email else ''
+        }),
+        daemon=True
+    ).start()
     return redirect('/app')
 
 if __name__ == "__main__":

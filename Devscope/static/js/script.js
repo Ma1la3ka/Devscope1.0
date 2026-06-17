@@ -3,6 +3,7 @@ let reportData = null;
 let currentReportId = null;
 let featureAnalysisInterval = null;
 let notificationInterval = null;
+const _shownNotificationKeys = new Set();
 
 // ── INIT ──────────────────────────────────────────────────────────────────
 
@@ -81,6 +82,13 @@ async function sendMessage() {
     appendMessage('assistant', data.reply);
     if (data.session_id) currentSessionId = data.session_id;
     if (data.show_report) showReportButton();
+    pendo.track('chat_message_sent', {
+      message_length: text.length,
+      session_id: currentSessionId || '',
+      is_first_message: document.querySelectorAll('.message.user').length === 1,
+      show_report_triggered: !!data.show_report,
+      exchange_number: document.querySelectorAll('.message.user').length
+    });
     loadSessions();
     scrollToBottom();
   } catch (err) {
@@ -115,6 +123,10 @@ async function validateIdea() {
     removeTyping(typing);
     appendMessage('assistant', data.reply);
     if (data.session_id) currentSessionId = data.session_id;
+    pendo.track('idea_validated', {
+      idea_text_length: idea.length,
+      session_id: currentSessionId || ''
+    });
     loadSessions();
     scrollToBottom();
   } catch (err) {
@@ -150,6 +162,18 @@ async function generateReport() {
     renderReport(data.report);
     updateStatsPanel(data.report);
     document.getElementById('reportModal').style.display = 'flex';
+    pendo.track('report_generated', {
+      report_id: data.report_id || '',
+      session_id: currentSessionId || '',
+      feature_count: (data.report.features || []).length,
+      readiness_score: data.report.readiness_score || 0,
+      persona: data.report.persona || '',
+      stack: data.report.stack || '',
+      stack_known: !!data.stack_known,
+      africa_market: !!data.report.africa_market,
+      competitor_gap_count: (data.report.competitor_gaps || []).length,
+      missing_feature_count: (data.report.missing_features || []).length
+    });
 
 // ── NEW: trigger deep dive prompt after a delay ──
 if (data.deep_dive_ready) {
@@ -243,6 +267,13 @@ async function confirmStack(reportId, stack) {
   if (!stack || !stack.trim()) return;
   stack = stack.trim();
 
+  const presetStacks = ['React + Node.js', 'Flutter', 'Next.js + Supabase', 'React Native'];
+  pendo.track('deep_dive_stack_confirmed', {
+    report_id: reportId,
+    stack: stack,
+    is_preset_stack: presetStacks.includes(stack)
+  });
+
   // Remove the ask message
   const askMsg = document.getElementById('stack-ask-msg');
   if (askMsg) askMsg.remove();
@@ -272,6 +303,11 @@ async function startDeepDive(reportId, stack) {
       return;
     }
 
+    pendo.track('deep_dive_started', {
+      report_id: reportId,
+      stack: stack || '',
+      session_id: currentSessionId || ''
+    });
     appendMessage('assistant', data.reply);
     scrollToBottom();
 
@@ -308,6 +344,11 @@ function startFeatureAnalysisPolling(reportId) {
       if (data.done) {
         clearInterval(featureAnalysisInterval);
         featureAnalysisInterval = null;
+        pendo.track('feature_analysis_completed', {
+          report_id: reportId,
+          total_features: data.total || 0,
+          completed_count: data.completed || 0
+        });
         updateAnalysisStatus('✅ Deep feature analysis complete!');
         setTimeout(hideAnalysisStatus, 3000);
 
@@ -407,6 +448,10 @@ function renderDeepAnalysis(analysis) {
 
 function copyFeaturePrompt(btn, prompt) {
   navigator.clipboard.writeText(prompt);
+  pendo.track('prompt_copied', {
+    prompt_type: 'feature_claude',
+    report_id: currentReportId || ''
+  });
   const original = btn.textContent;
   btn.textContent = '✅ Copied!';
   setTimeout(() => { btn.textContent = original; }, 2000);
@@ -438,6 +483,14 @@ async function generatePrompts() {
       return;
     }
 
+    pendo.track('prompts_generated', {
+      report_id: currentReportId || '',
+      token_estimate: data.prompts?.token_estimate || '',
+      has_quick_prompt: !!data.prompts?.quick_prompt,
+      has_full_prompt: !!data.prompts?.full_prompt,
+      has_cursor_prompt: !!data.prompts?.cursor_prompt,
+      skipped_items_count: (data.prompts?.what_this_skips || []).length
+    });
     renderPromptSection(data.prompts);
     document.getElementById('promptModal').style.display = 'flex';
 
@@ -505,6 +558,14 @@ function escapeBackticks(str) {
 function copyText(text, btn) {
   navigator.clipboard.writeText(text);
   const orig = btn.textContent;
+  let promptType = 'unknown';
+  if (orig.includes('Quick')) promptType = 'quick';
+  else if (orig.includes('Full')) promptType = 'full';
+  else if (orig.includes('Cursor')) promptType = 'cursor';
+  pendo.track('prompt_copied', {
+    prompt_type: promptType,
+    report_id: currentReportId || ''
+  });
   btn.textContent = '✅ Copied!';
   setTimeout(() => { btn.textContent = orig; }, 2000);
 }
@@ -927,6 +988,14 @@ async function toggleFeature(featureName, checkbox) {
     const data = await res.json();
     if (data.report) {
       reportData = data.report;
+      const features = data.report.features || [];
+      pendo.track('feature_shipped_toggled', {
+        report_id: currentReportId || '',
+        feature_name: featureName,
+        is_shipped: !!checkbox.checked,
+        total_features: features.length,
+        shipped_count: features.filter(f => f.shipped).length
+      });
       renderReport(data.report);
       updateStatsPanel(data.report);
       showToast(checkbox.checked ? '✅ Shipped!' : 'Marked unshipped');
@@ -971,6 +1040,13 @@ async function saveDeadline() {
     });
     const data = await res.json();
     if (data.success) {
+      const daysUntil = Math.round((new Date(deadline) - new Date()) / (1000 * 60 * 60 * 24));
+      pendo.track('feature_deadline_set', {
+        report_id: currentReportId || '',
+        feature_name: activeDeadlineFeature || '',
+        deadline: deadline,
+        days_until_deadline: daysUntil
+      });
       if (reportData?.features) {
         const f = reportData.features.find(x => x.name === activeDeadlineFeature);
         if (f) f.deadline = deadline;
@@ -1014,6 +1090,15 @@ async function checkServerNotifications() {
 }
 
 function showServerNotification(n) {
+  const notifKey = `${n.report_id}_${n.feature}`;
+  if (!_shownNotificationKeys.has(notifKey)) {
+    _shownNotificationKeys.add(notifKey);
+    pendo.track('deadline_notification_shown', {
+      report_id: n.report_id || '',
+      feature_name: n.feature || '',
+      hours_overdue: n.hours_overdue || 0
+    });
+  }
   const notif = document.createElement('div');
   notif.className = 'reminder-notif';
   notif.innerHTML = `
@@ -1031,6 +1116,10 @@ function showServerNotification(n) {
 }
 
 function dismissNotification(reportId, feature, btn) {
+  pendo.track('deadline_notification_dismissed', {
+    report_id: reportId || '',
+    feature_name: feature || ''
+  });
   const key = `notif_${reportId}_${feature}_dismissed`;
   localStorage.setItem(key, '1');
   btn.closest('.reminder-notif').remove();
@@ -1071,7 +1160,12 @@ function handleLogout() {
     if (result.isConfirmed) {
       pendo.clearSession();
       fetch('/logout', { method: 'POST' })
-        .then(() => window.location.href = '/');
+        .then(() => {
+          pendo.track('user_logged_out', {
+            session_id: currentSessionId || ''
+          });
+          window.location.href = '/';
+        });
     }
   });
 }
@@ -1120,6 +1214,10 @@ async function deleteSession(id) {
     const res = await fetch(`/sessions/${id}`, { method: 'DELETE' });
     const data = await res.json();
     if (data.success) {
+      pendo.track('session_deleted', {
+        deleted_session_id: id,
+        was_active_session: currentSessionId === id
+      });
       if (currentSessionId === id) {
         currentSessionId = null;
         reportData = null;
@@ -1146,7 +1244,12 @@ document.getElementById('newChatBtn').addEventListener('click', async () => {
   try {
     const res = await fetch('/new_chat', { method: 'POST' });
     const data = await res.json();
+    const hadPreviousSession = !!currentSessionId;
     currentSessionId = data.session_id;
+    pendo.track('new_chat_created', {
+      new_session_id: data.session_id || '',
+      had_previous_session: hadPreviousSession
+    });
     reportData = null;
     currentReportId = null;
     if (featureAnalysisInterval) {
@@ -1273,6 +1376,9 @@ function showToast(msg) {
 async function copyReport() {
   if (!reportData) return;
   await navigator.clipboard.writeText(JSON.stringify(reportData, null, 2));
+  pendo.track('report_copied', {
+    report_id: currentReportId || ''
+  });
   showToast('Report copied');
 }
 
@@ -1281,17 +1387,27 @@ async function shareReport() {
   await navigator.clipboard.writeText(
     `${window.location.origin}/share/${currentReportId}`
   );
+  pendo.track('report_shared', {
+    report_id: currentReportId
+  });
   showToast('Share link copied');
 }
 
 function downloadReport() {
   if (!currentReportId) return;
+  pendo.track('report_downloaded_pdf', {
+    report_id: currentReportId
+  });
   window.open(`/report/${currentReportId}/download`, '_blank');
 }
 
 function copyBuildPrompt() {
   if (!reportData?.build_prompt) return;
   navigator.clipboard.writeText(reportData.build_prompt);
+  pendo.track('prompt_copied', {
+    prompt_type: 'build',
+    report_id: currentReportId || ''
+  });
   showToast('✅ Build prompt copied!');
 }
 
