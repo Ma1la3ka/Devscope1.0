@@ -1069,6 +1069,7 @@ function handleLogout() {
     borderRadius: '14px',
   }).then((result) => {
     if (result.isConfirmed) {
+      pendo.clearSession();
       fetch('/logout', { method: 'POST' })
         .then(() => window.location.href = '/');
     }
