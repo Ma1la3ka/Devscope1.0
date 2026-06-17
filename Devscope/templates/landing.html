@@ -784,7 +784,7 @@ function handleLogin() {
   btn.classList.add('loading'); btn.disabled = true; btn.textContent = 'Logging in…';
    fetch('/login', { method:'POST', headers:{'Content-Type':'application/json'},
      body: JSON.stringify({ email, password: pw }) })
-     .then(r => r.json()).then(d => { if (d.ok) window.location.href='/app'; })
+     .then(r => r.json()).then(d => { if (d.ok) { pendo.track('user_logged_in', { login_method: 'email' }); window.location.href='/app'; } })
 
   setTimeout(() => {
     btn.classList.remove('loading'); btn.disabled = false; btn.textContent = 'Log in to DevScope';
@@ -810,7 +810,7 @@ function handleSignup() {
 
   fetch('/register', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ name, email, password: pw }) })
-    .then(r => r.json()).then(d => { if (d.ok) switchTab('login'); })
+    .then(r => r.json()).then(d => { if (d.ok) { pendo.track('user_registered', { signup_method: 'email', has_name: !!name, email_domain: email.split('@')[1] || '' }); switchTab('login'); } })
 
   setTimeout(() => {
     btn.classList.remove('loading'); btn.disabled = false; btn.textContent = 'Create account';
