@@ -1,0 +1,9 @@
+flask
+groq
+tavily-python
+mysql-connector-python
+reportlab
+authlib
+gunicorn
+python-dotenv
+requests

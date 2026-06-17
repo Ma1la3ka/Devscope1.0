@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>DevScope</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+</head>
+<body>
+
+  <!-- SIDEBAR -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <div class="logo-icon">⚡</div>
+        <span class="logo-text">Dev<span>Scope</span></span>
+      </div>
+      <button class="new-chat-btn" id="newChatBtn">+ New Chat</button>
+    </div>
+    <div class="sidebar-sessions" id="sessionList"></div>
+    <div class="sidebar-footer">
+      <div class="upgrade-banner">
+        <span>⚡ Upgrade to Claude</span>
+        <p>Better reasoning, deeper analysis</p>
+        <button onclick="showUpgrade()">Upgrade</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">☰</button>
+      <span class="topbar-title">DevScope — Your AI Product Advisor</span>
+      <span class="topbar-badge">BETA</span>
+      <button class="theme-toggle" id="themeToggle">🌙</button>
+      <button class="logout-btn" onclick="handleLogout()">⏻</button>
+    </div>
+
+    <!-- CONTENT ROW -->
+    <div class="content-row">
+
+      <!-- CHAT COLUMN -->
+      <div class="chat-column">
+
+        <!-- MOBILE STATS TOGGLE -->
+        <button class="mobile-stats-toggle" id="mobileStatsToggle" onclick="toggleMobileStats()">
+          📊 Project Stats <span class="toggle-arrow">▼</span>
+        </button>
+        <div class="mobile-stats-panel" id="mobileStatsPanel"></div>
+
+        <!-- CHAT AREA -->
+        <div class="chat-area" id="chatArea">
+
+          <!-- WELCOME -->
+          <div class="welcome" id="welcome">
+            <div class="welcome-icon">⚡</div>
+            <h1>DevScope</h1>
+            <p class="welcome-tagline">Your brutally honest AI product advisor.</p>
+            <p class="welcome-sub">Tell me what you're building — I'll tell you what's actually worth building.</p>
+            <div class="welcome-chips">
+              <span class="chip" onclick="fillInput('I want to build a fintech app')">💳 Fintech app</span>
+              <span class="chip" onclick="fillInput('I am building a SaaS for developers')">🛠 Dev SaaS</span>
+              <span class="chip" onclick="fillInput('I want to build an edtech platform for Africa')">🌍 African edtech</span>
+              <span class="chip" onclick="fillInput('I have a marketplace idea')">🛒 Marketplace</span>
+            </div>
+            <div class="idea-validator">
+              <p class="validator-label">💡 Quick Idea Check</p>
+              <div class="validator-row">
+                <input type="text" id="ideaInput" placeholder="Describe your app idea in one line..." />
+                <button onclick="validateIdea()">Validate</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- MESSAGES -->
+          <div class="messages" id="messages"></div>
+
+        </div>
+
+        <!-- REPORT BAR -->
+        <div class="report-bar" id="reportBar" style="display:none;">
+          <button class="generate-report-btn" onclick="generateReport()">
+            📊 Generate My Feature Report
+          </button>
+        </div>
+
+        <!-- INPUT -->
+        <div class="input-area">
+          <div class="input-row">
+            <textarea id="userInput" placeholder="Tell me about your product..." rows="1" onkeydown="handleKey(event)"></textarea>
+            <button class="send-btn" onclick="sendMessage()"><i class="fa fa-paper-plane"></i></button>
+          </div>
+          <p class="input-hint">DevScope gives AI-powered advice. Always validate with real users.</p>
+        </div>
+
+      </div>
+      <!-- END CHAT COLUMN -->
+
+      <!-- STATS PANEL (desktop only) -->
+      <div class="stats-panel" id="statsPanel">
+        <div class="stats-empty">
+          <p>📊</p>
+          <p>Stats appear after<br/>you generate a report</p>
+        </div>
+      </div>
+
+    </div>
+    <!-- END CONTENT ROW -->
+
+  </div>
+  <!-- END MAIN -->
+
+  <!-- REPORT MODAL -->
+  <div class="modal-overlay" id="reportModal" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>📊 Your DevScope Report</h2>
+        <div class="modal-actions">
+          <button onclick="downloadReport()">⬇ PDF</button>
+          <button onclick="copyReport()">📋 Copy</button>
+          <button onclick="shareReport()">🔗 Share</button>
+          <button onclick="closeReport()">✕</button>
+        </div>
+      </div>
+      <div class="modal-body" id="reportContent"></div>
+    </div>
+  </div>
+
+  <!-- DEADLINE MODAL -->
+  <div class="modal-overlay" id="deadlineModal" style="display:none;">
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-header">
+        <h2>🗓 Set Deadline</h2>
+        <div class="modal-actions"><button onclick="closeDeadlineModal()">✕</button></div>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text2);margin-bottom:16px;font-size:13px">
+          Feature: <strong id="deadlineFeatureName" style="color:var(--accent)"></strong>
+        </p>
+        <p style="color:var(--text2);font-size:12px;margin-bottom:12px">We'll remind you in-app when this deadline hits.</p>
+        <input type="datetime-local" id="deadlineInput"
+          style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px 14px;color:var(--text);font-size:13px;outline:none;margin-bottom:16px;font-family:var(--font)"/>
+        <button onclick="saveDeadline()"
+          style="width:100%;padding:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">
+          Save Deadline
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- UPGRADE MODAL -->
+  <div class="modal-overlay" id="upgradeModal" style="display:none;">
+    <div class="modal upgrade-modal">
+      <h2>⚡ Upgrade to Claude</h2>
+      <p>Get access to deeper reasoning, competitor deep dives, and more accurate feature scoring.</p>
+      <div class="upgrade-features">
+        <div>✅ Claude-powered analysis</div>
+        <div>✅ Deeper competitor research</div>
+        <div>✅ More accurate efficiency scores</div>
+        <div>✅ Priority support</div>
+      </div>
+      <p class="coming-soon">🚀 Coming Soon — <a href="mailto:devscope@gmail.com">Contact us to join waitlist</a></p>
+      <button onclick="closeUpgrade()">Close</button>
+    </div>
+  </div>
+
+  <!-- PROMPT MODAL -->
+  <div class="modal-overlay" id="promptModal" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>🤖 Generated Prompts</h2>
+        <div class="modal-actions">
+          <button onclick="closePromptModal()">✕</button>
+        </div>
+      </div>
+      <div class="modal-body" id="promptContent"></div>
+    </div>
+  </div>
+
+  <script src="/static/js/script.js"></script>
+</body>
+</html>
