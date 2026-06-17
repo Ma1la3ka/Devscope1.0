@@ -9,27 +9,24 @@
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script>
   (function(apiKey){
-      (function(p,e,n,d,o){var v,w,x,y,z;o=p[d]=p[d]||{};o._q=o._q||[];
-      v=['initialize','identify','updateOptions','pageLoad','track', 'trackAgent'];for(w=0,x=v.length;w<x;++w)(function(m){
-      o[m]=o[m]||function(){o._q[m===v[0]?'unshift':'push']([m].concat([].slice.call(arguments,0)));};})(v[w]);
-      y=e.createElement(n);y.async=!0;y.src='https://cdn.pendo.io/agent/static/'+apiKey+'/pendo.js';
-      z=e.getElementsByTagName(n)[0];z.parentNode.insertBefore(y,z);})(window,document,'script','pendo');
-  })('cbb05cef-63cd-4e8c-b863-980066c154e8');
+    (function(p,e,n,d,o){var v,w,x,y,z;o=p[d]=p[d]||{};o._q=o._q||[];
+    v=['initialize','identify','updateOptions','pageLoad','track','trackAgent'];for(w=0,x=v.length;w<x;++w)(function(m){
+    o[m]=o[m]||function(){o._q[m===v[0]?'unshift':'push']([m].concat([].slice.call(arguments,0)));};})(v[w]);
+    y=e.createElement(n);y.async=!0;y.src='https://cdn.pendo.io/agent/static/'+apiKey+'/pendo.js';
+    z=e.getElementsByTagName(n)[0];z.parentNode.insertBefore(y,z);})(window,document,'script','pendo');
+})('cbb05cef-63cd-4e8c-b863-980066c154e8');
 
-  pendo.initialize({ visitor: { id: '' } });
-  {% if pendo_visitor is defined and pendo_visitor and pendo_visitor.id is defined %}
-  (function() {
-    var v = {{ pendo_visitor | tojson }};
-    pendo.identify({
-      visitor: {
-        id: String(v.id),
-        email: v.email || '',
-        full_name: v.name || '',
-        createdAt: v.createdAt || ''
-      }
-    });
-  })();
-  {% endif %}
+{% if pendo_visitor is defined and pendo_visitor and pendo_visitor.id is defined %}
+pendo.initialize({
+  visitor: {
+    id: '{{ pendo_visitor.id }}',
+    email: '{{ pendo_visitor.email or "" }}',
+    full_name: '{{ pendo_visitor.name or "" }}'
+  }
+});
+{% else %}
+pendo.initialize({ visitor: { id: 'anonymous' } });
+{% endif %}
   </script>
 </head>
 <body>
