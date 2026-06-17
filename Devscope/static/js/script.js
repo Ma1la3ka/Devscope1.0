@@ -4,6 +4,9 @@ let currentReportId = null;
 let featureAnalysisInterval = null;
 let notificationInterval = null;
 
+const PENDO_AGENT_ID = 'QpXqT4NQ0FszJD_V0auQX6rWF9c';
+let _isSuggestedPrompt = false;
+
 // ── INIT ──────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -54,6 +57,7 @@ function fillInput(text) {
   input.focus();
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+  _isSuggestedPrompt = true;
 }
 
 // ── SEND MESSAGE ──────────────────────────────────────────────────────────
@@ -63,10 +67,24 @@ async function sendMessage() {
   const text = input.value.trim();
   if (!text) return;
 
+  const promptMessageId = crypto.randomUUID();
+  const wasSuggested = _isSuggestedPrompt;
+  _isSuggestedPrompt = false;
+
   hideWelcome();
   appendMessage('user', text);
   input.value = '';
   input.style.height = 'auto';
+
+  if (typeof pendo !== 'undefined' && pendo.trackAgent) {
+    pendo.trackAgent("prompt", {
+      agentId: PENDO_AGENT_ID,
+      conversationId: currentSessionId || "new_session",
+      messageId: promptMessageId,
+      content: text,
+      suggestedPrompt: wasSuggested
+    });
+  }
 
   const typing = showTyping();
 
@@ -81,6 +99,17 @@ async function sendMessage() {
     appendMessage('assistant', data.reply);
     if (data.session_id) currentSessionId = data.session_id;
     if (data.show_report) showReportButton();
+
+    if (typeof pendo !== 'undefined' && pendo.trackAgent) {
+      pendo.trackAgent("agent_response", {
+        agentId: PENDO_AGENT_ID,
+        conversationId: currentSessionId,
+        messageId: `agent_response_${Date.now()}`,
+        content: data.reply,
+        modelUsed: "llama-3.3-70b-versatile"
+      });
+    }
+
     loadSessions();
     scrollToBottom();
   } catch (err) {
@@ -96,9 +125,21 @@ async function validateIdea() {
   const idea = input.value.trim();
   if (!idea) return;
 
+  const promptMessageId = crypto.randomUUID();
+
   hideWelcome();
   appendMessage('user', `Quick check: ${idea}`);
   input.value = '';
+
+  if (typeof pendo !== 'undefined' && pendo.trackAgent) {
+    pendo.trackAgent("prompt", {
+      agentId: PENDO_AGENT_ID,
+      conversationId: currentSessionId || "new_session",
+      messageId: promptMessageId,
+      content: idea,
+      suggestedPrompt: false
+    });
+  }
 
   const typing = showTyping();
 
@@ -115,6 +156,17 @@ async function validateIdea() {
     removeTyping(typing);
     appendMessage('assistant', data.reply);
     if (data.session_id) currentSessionId = data.session_id;
+
+    if (typeof pendo !== 'undefined' && pendo.trackAgent) {
+      pendo.trackAgent("agent_response", {
+        agentId: PENDO_AGENT_ID,
+        conversationId: currentSessionId,
+        messageId: `agent_response_${Date.now()}`,
+        content: data.reply,
+        modelUsed: "llama-3.3-70b-versatile"
+      });
+    }
+
     loadSessions();
     scrollToBottom();
   } catch (err) {
@@ -273,6 +325,17 @@ async function startDeepDive(reportId, stack) {
     }
 
     appendMessage('assistant', data.reply);
+
+    if (typeof pendo !== 'undefined' && pendo.trackAgent) {
+      pendo.trackAgent("agent_response", {
+        agentId: PENDO_AGENT_ID,
+        conversationId: currentSessionId,
+        messageId: `agent_response_${Date.now()}`,
+        content: data.reply,
+        modelUsed: "llama-3.3-70b-versatile"
+      });
+    }
+
     scrollToBottom();
 
   } catch (err) {
@@ -1211,6 +1274,7 @@ function sendQuickReply(text) {
   document.querySelectorAll('.quick-reply-row').forEach(el => el.remove());
   // Put the text in input and send
   document.getElementById('userInput').value = text;
+  _isSuggestedPrompt = true;
   sendMessage();
 }
 
