@@ -1,3 +1,4 @@
+import os
 import warnings
 warnings.filterwarnings("ignore")
 from flask import Flask, request, jsonify, render_template, session, send_file, redirect, url_for
@@ -21,8 +22,19 @@ from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+import itertools
 
-genai.configure(api_key=GEMINI_API_KEY)
+GEMINI_KEYS = [k for k in [
+    GEMINI_API_KEY,
+    os.getenv("GEMINI_API_KEY_2"),
+    os.getenv("GEMINI_API_KEY_3"),
+    os.getenv("GEMINI_API_KEY_4"),
+] if k]
+
+key_cycle = itertools.cycle(GEMINI_KEYS)
+current_key = next(key_cycle)
+genai.configure(api_key=current_key)
+
 tavily = TavilyClient(api_key=TAVILY_API_KEY)
 MODEL = "gemini-2.5-flash"
 
@@ -633,59 +645,61 @@ class RateLimitError(Exception):
         super().__init__("Gemini rate limit hit")
 
 def call_groq(messages, max_tokens=1024):
-    try:
-        system_instruction = ""
-        gemini_history = []
+    global current_key
 
-        for m in messages:
-            if m["role"] == "system":
-                system_instruction = m["content"]
-            elif m["role"] == "user":
-                gemini_history.append({"role": "user", "parts": [m["content"]]})
-            elif m["role"] == "assistant":
-                gemini_history.append({"role": "model", "parts": [m["content"]]})
+    for attempt in range(len(GEMINI_KEYS)):
+        try:
+            genai.configure(api_key=current_key)
 
-        last_user_msg = None
-        history_to_send = []
-        for msg in gemini_history:
-            if msg == gemini_history[-1] and msg["role"] == "user":
-                last_user_msg = msg["parts"][0]
-            else:
-                history_to_send.append(msg)
+            system_instruction = ""
+            gemini_history = []
 
-        model = genai.GenerativeModel(
-            model_name=MODEL,
-            system_instruction=system_instruction if system_instruction else None,
-            generation_config=genai.types.GenerationConfig(
-                max_output_tokens=max_tokens,
-                temperature=0.3,
+            for m in messages:
+                if m["role"] == "system":
+                    system_instruction = m["content"]
+                elif m["role"] == "user":
+                    gemini_history.append({"role": "user", "parts": [m["content"]]})
+                elif m["role"] == "assistant":
+                    gemini_history.append({"role": "model", "parts": [m["content"]]})
+
+            last_user_msg = None
+            history_to_send = []
+            for msg in gemini_history:
+                if msg == gemini_history[-1] and msg["role"] == "user":
+                    last_user_msg = msg["parts"][0]
+                else:
+                    history_to_send.append(msg)
+
+            model = genai.GenerativeModel(
+                model_name=MODEL,
+                system_instruction=system_instruction if system_instruction else None,
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=max_tokens,
+                    temperature=0.3,
+                )
             )
-        )
 
-        chat = model.start_chat(history=history_to_send)
-        response = chat.send_message(last_user_msg)
-        return response.text
+            chat = model.start_chat(history=history_to_send)
+            response = chat.send_message(last_user_msg)
+            return response.text
 
-    except Exception as e:
-        err_str = str(e).lower()
-        if (
-            "429" in err_str or
-            "quota" in err_str or
-            "resource_exhausted" in err_str or
-            "rate" in err_str
-        ):
-            retry_after = None
-            m = re.search(r"retry after (\d+)", err_str)
-            if m:
-                try:
-                    retry_after = float(m.group(1))
-                except Exception:
-                    pass
-            print(f"Gemini rate limit hit. retry_after={retry_after}s. Raw: {e}")
-            raise RateLimitError(retry_after=retry_after)
+        except Exception as e:
+            err_str = str(e).lower()
+            is_rate_limit = (
+                "429" in err_str or
+                "quota" in err_str or
+                "resource_exhausted" in err_str
+            )
 
-        print(f"Gemini call failed: {e}")
-        raise e
+            if is_rate_limit:
+                print(f"Key exhausted, rotating to next key...")
+                current_key = next(key_cycle)
+                continue
+
+            print(f"Gemini call failed: {e}")
+            raise e
+
+    raise RateLimitError(retry_after=None)
 
 def parse_json_response(raw):
     raw = raw.strip()
