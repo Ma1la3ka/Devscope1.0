@@ -24,7 +24,7 @@ app.secret_key = SECRET_KEY
 
 genai.configure(api_key=GEMINI_API_KEY)
 tavily = TavilyClient(api_key=TAVILY_API_KEY)
-MODEL = "gemini-2.0-flash"
+MODEL = "gemini-1.5-flash"
 
 # ── MODE CONSTANTS ──────────────────────────────────────────────────────────
 MODE_FOUNDER = "founder"
