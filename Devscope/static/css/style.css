@@ -1709,3 +1709,299 @@ body::after {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ============================================================
+   DEVSCOPE — MOBILE OVERRIDES
+   Add these rules at the very bottom of your existing CSS.
+   They override the desktop styles for screens ≤ 768px.
+   ============================================================ */
+
+/* ── TOPBAR ─────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .topbar {
+    padding: 0 10px;
+    height: 52px;
+    gap: 6px;
+  }
+
+  /* Hide the long title on mobile — wastes space */
+  .topbar-title {
+    display: none;
+  }
+
+  /* Push the mode toggle to fill remaining space sensibly */
+  .mode-toggle {
+    flex: 1;
+    justify-content: center;
+    max-width: 200px;
+  }
+
+  .mode-toggle-btn {
+    padding: 5px 14px;
+    font-size: 11px;
+  }
+
+  /* Badge sits to the right of the mode toggle */
+  .topbar-badge {
+    font-size: 9px;
+    padding: 3px 7px;
+    letter-spacing: 0.04em;
+  }
+
+  /* ── SIDEBAR ─────────────────────────────────────────────── */
+  .sidebar {
+    width: 80vw;        /* wider on phone — easier to tap items */
+    max-width: 300px;
+  }
+
+  .logo { font-size: 14px; }
+
+  /* ── WELCOME SCREEN ──────────────────────────────────────── */
+  .welcome {
+    padding: 28px 16px 20px;
+    justify-content: flex-start;
+  }
+
+  .welcome-icon {
+    width: 52px;
+    height: 52px;
+    font-size: 22px;
+    margin-bottom: 14px;
+  }
+
+  .welcome h1 {
+    font-size: 26px;
+    letter-spacing: -0.5px;
+    margin-bottom: 8px;
+  }
+
+  .welcome-tagline {
+    font-size: 13px;
+    margin-bottom: 4px;
+  }
+
+  .welcome-sub { font-size: 12px; }
+
+  /* Chips: 2 per row max, no orphan single chip */
+  .welcome-chips {
+    gap: 6px;
+    margin-top: 16px;
+  }
+
+  .chip {
+    font-size: 11px;
+    padding: 6px 12px;
+  }
+
+  /* ── IDEA VALIDATOR ──────────────────────────────────────── */
+  .idea-validator { margin-top: 16px; }
+
+  .validator-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .validator-row input,
+  .validator-row button {
+    width: 100%;
+    font-size: 14px;   /* prevent iOS auto-zoom on focus */
+  }
+
+  /* ── MESSAGES ────────────────────────────────────────────── */
+  .messages {
+    padding: 14px 10px 10px;
+    gap: 12px;
+  }
+
+  .msg-avatar {
+    width: 28px;
+    height: 28px;
+    font-size: 10px;
+    border-radius: 8px;
+  }
+
+  .msg-content {
+    max-width: 86%;
+    font-size: 13px;
+    padding: 10px 13px;
+    line-height: 1.65;
+  }
+
+  /* ── QUICK REPLY CHIPS ───────────────────────────────────── */
+  .quick-reply-row {
+    padding-left: 36px;
+    gap: 6px;
+  }
+
+  .quick-reply-chip {
+    font-size: 11px;
+    padding: 6px 12px;
+  }
+
+  /* ── INPUT AREA ──────────────────────────────────────────── */
+  .input-area {
+    padding: 8px 10px 14px;
+  }
+
+  .input-row {
+    padding: 6px 6px 6px 13px;
+    border-radius: 14px;
+  }
+
+  .input-row textarea {
+    font-size: 16px;   /* MUST be ≥16px — prevents iOS zoom */
+    padding: 4px 0;
+    max-height: 110px;
+  }
+
+  .send-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 13px;
+  }
+
+  .input-hint {
+    font-size: 10px;
+    margin-top: 7px;
+  }
+
+  /* ── REPORT BAR ──────────────────────────────────────────── */
+  .report-bar {
+    padding: 9px 12px;
+  }
+
+  .generate-report-btn {
+    padding: 10px 0;
+    width: 100%;
+    font-size: 13px;
+    border-radius: 10px;
+  }
+
+  /* ── MOBILE STATS TOGGLE ─────────────────────────────────── */
+  .mobile-stats-toggle {
+    font-size: 11px;
+    padding: 9px 14px;
+    letter-spacing: 0.06em;
+  }
+
+  .mobile-stats-panel.open {
+    padding: 14px;
+    gap: 10px;
+  }
+
+  /* Stat cards inside the mobile panel */
+  .stat-card {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .stat-card-icon { font-size: 18px; }
+  .stat-value { font-size: 13px; }
+  .stat-label { font-size: 9px; }
+
+  /* ── MODAL ───────────────────────────────────────────────── */
+  .modal-overlay { padding: 0; align-items: flex-end; }
+
+  .modal {
+    border-radius: 20px 20px 0 0;   /* sheet slides up from bottom */
+    max-height: 92vh;
+    animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .modal-header {
+    padding: 14px 16px;
+    gap: 8px;
+  }
+
+  .modal-header h2 { font-size: 14px; }
+
+  .modal-actions { gap: 4px; flex-wrap: wrap; }
+
+  .modal-actions button {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+
+  .modal-body { padding: 14px; }
+
+  /* Feature cards */
+  .feature-card { padding: 14px; }
+
+  .feature-name { font-size: 13px; }
+
+  .feature-badges { gap: 4px; }
+
+  .badge { font-size: 9px; padding: 2px 8px; }
+
+  /* Roadmap: single column */
+  .roadmap-grid { grid-template-columns: 1fr; }
+
+  /* Build prompt box: smaller mono text */
+  .build-prompt-box { font-size: 11px; padding: 12px; }
+
+  /* ── TOAST ───────────────────────────────────────────────── */
+  .toast {
+    bottom: 16px;
+    right: 12px;
+    left: 12px;       /* full-width on mobile */
+    text-align: center;
+    font-size: 12px;
+    padding: 10px 14px;
+    border-radius: 10px;
+  }
+
+  /* ── REMINDER NOTIF ──────────────────────────────────────── */
+  .reminder-notif {
+    bottom: 12px;
+    right: 10px;
+    left: 10px;
+  }
+
+  .reminder-notif-inner { max-width: 100%; }
+
+  /* ── VERDICT BADGE ───────────────────────────────────────── */
+  .verdict-badge {
+    font-size: 14px;
+    padding: 8px 20px;
+  }
+
+  /* ── PROGRESS RING ───────────────────────────────────────── */
+  .progress-card { gap: 10px; }
+
+  .ring-wrap { width: 48px; height: 48px; }
+  .ring-svg { width: 48px; height: 48px; }
+  .ring-label { font-size: 10px; }
+
+  /* ── UPGRADE BANNER ──────────────────────────────────────── */
+  .upgrade-banner { padding: 12px; }
+  .upgrade-banner span { font-size: 11px; }
+  .upgrade-banner p { font-size: 10px; margin: 3px 0 8px; }
+  .upgrade-banner button { font-size: 11px; padding: 7px; }
+
+  /* ── SIDEBAR SESSIONS ────────────────────────────────────── */
+  .session-item { font-size: 12px; padding: 8px 10px; }
+  .session-group-label { font-size: 9px; }
+
+  /* ── DEEP DIVE FEATURE RESPONSE ──────────────────────────── */
+  .feature-actions { flex-wrap: wrap; gap: 6px; }
+
+  .feature-btn {
+    font-size: 11px;
+    padding: 5px 11px;
+  }
+}
+
+/* ── VERY SMALL SCREENS (≤360px, e.g. old Androids) ─────────── */
+@media (max-width: 360px) {
+  .welcome h1 { font-size: 22px; }
+  .mode-toggle-btn { padding: 4px 10px; font-size: 10px; }
+  .msg-content { max-width: 92%; font-size: 12px; }
+  .topbar-badge { display: none; }   /* too cramped on tiny screens */
+}
+
+/* ── SAFE AREA (iPhone notch / home indicator) ────────────────── */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .input-area {
+    padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  }
+}

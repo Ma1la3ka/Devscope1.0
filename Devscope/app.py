@@ -44,11 +44,6 @@ RESEARCHER_SIGNALS = [
 ]
 
 def detect_mode(message: str) -> str:
-    """
-    Returns MODE_RESEARCHER or MODE_FOUNDER based on message content.
-    Researcher signals: asking about a feature generically, mentioning a stack
-    before any product context, or using research-style phrasing.
-    """
     msg = message.lower().strip()
     for pattern in RESEARCHER_SIGNALS:
         if re.search(pattern, msg):
@@ -60,6 +55,49 @@ def get_session_mode() -> str:
 
 def set_session_mode(mode: str):
     session["devscope_mode"] = mode
+
+# ── REPORT CONTEXT GUARD ────────────────────────────────────────────────────
+
+MIN_EXCHANGES_FOR_REPORT = 4
+
+def has_enough_context(history: list) -> tuple:
+    """
+    Returns (ok, reason).
+    Requires at least MIN_EXCHANGES_FOR_REPORT user messages,
+    and at least one that contains real product context (not just a meta-request).
+    """
+    user_msgs = [m for m in history if m["role"] == "user"]
+
+    if len(user_msgs) < MIN_EXCHANGES_FOR_REPORT:
+        remaining = MIN_EXCHANGES_FOR_REPORT - len(user_msgs)
+        return False, (
+            f"Not enough context yet — {remaining} more exchange"
+            f"{'s' if remaining > 1 else ''} needed before I can generate a useful report."
+        )
+
+    META_PATTERNS = [
+        r"give me.*(report|button|generate)",
+        r"(generate|create|make).*(report|pdf)",
+        r"show.*button",
+        r"^(yes|no|ok|okay|sure|cool|got it|thanks|lol|okay cool)\.?$",
+        r"i need (u|you) to give me",
+    ]
+
+    has_product_signal = False
+    for m in user_msgs:
+        text = m["content"].strip().lower()
+        is_meta = any(re.search(p, text) for p in META_PATTERNS)
+        if not is_meta and len(text) > 20:
+            has_product_signal = True
+            break
+
+    if not has_product_signal:
+        return False, (
+            "Tell me what you're building first — "
+            "the report needs real product context to be useful."
+        )
+
+    return True, ""
 
 # ── SYSTEM PROMPTS ──────────────────────────────────────────────────────────
 
@@ -610,7 +648,6 @@ def search_feature_context(feature_name, app_context):
         return ""
 
 def search_feature_research(feature_name, app_type):
-    """Search for real-world examples of feature implementations for researcher mode."""
     try:
         results = tavily.search(
             query=f"{feature_name} feature {app_type} apps implementation examples user feedback",
@@ -922,7 +959,6 @@ def generate_feature_research_pdf(report_data):
     story.append(Paragraph(f"Generated {datetime.now().strftime('%B %d, %Y at %H:%M')}", sub_style))
     story.append(HRFlowable(width="100%", thickness=2, color=accent, spaceAfter=16))
 
-    # Header info
     if report_data.get("feature_name"):
         story.append(Paragraph("FEATURE UNDER ANALYSIS", section_style))
         story.append(Paragraph(report_data["feature_name"], feature_name_style))
@@ -934,7 +970,6 @@ def generate_feature_research_pdf(report_data):
     if report_data.get("stack") and report_data["stack"] != "Not specified":
         story.append(Paragraph(f"Stack: {report_data['stack']}", mono_style))
 
-    # Verdict — big and bold
     verdict = report_data.get("verdict", "")
     verdict_style_map = {
         "BUILD IT": verdict_build,
@@ -952,7 +987,6 @@ def generate_feature_research_pdf(report_data):
 
     story.append(HRFlowable(width="100%", thickness=1, color=accent, spaceAfter=12))
 
-    # Why you SHOULD build it
     should = report_data.get("should_build", {})
     if should.get("reasons"):
         story.append(Paragraph("✅ REASONS TO BUILD IT", section_style))
@@ -965,7 +999,6 @@ def generate_feature_research_pdf(report_data):
             story.append(Paragraph(
                 f"→ {app_ex['app']}: {app_ex['how_they_did_it']} — {app_ex['result']}", mono_style))
 
-    # Why you SHOULD NOT build it
     should_not = report_data.get("should_not_build", {})
     if should_not.get("reasons"):
         story.append(Paragraph("❌ REASONS TO SKIP IT", section_style))
@@ -979,7 +1012,6 @@ def generate_feature_research_pdf(report_data):
                 f"→ {app_ex['app']}: {app_ex['what_went_wrong']} — Lesson: {app_ex['lesson']}",
                 mono_style))
 
-    # Build conditions
     if report_data.get("build_conditions"):
         story.append(Paragraph("BUILD IF:", section_style))
         story.append(Paragraph(report_data["build_conditions"], body_style))
@@ -988,7 +1020,6 @@ def generate_feature_research_pdf(report_data):
         story.append(Paragraph("SKIP IF:", section_style))
         story.append(Paragraph(report_data["skip_conditions"], body_style))
 
-    # Complexity
     complexity = report_data.get("complexity", {})
     if complexity:
         story.append(Paragraph("IMPLEMENTATION COMPLEXITY", section_style))
@@ -1004,7 +1035,6 @@ def generate_feature_research_pdf(report_data):
         if complexity.get("third_party"):
             story.append(Paragraph(f"Third-party: {complexity['third_party']}", mono_style))
 
-    # Alternatives
     alternatives = report_data.get("alternatives", [])
     if alternatives:
         story.append(Paragraph("ALTERNATIVES TO CONSIDER", section_style))
@@ -1013,19 +1043,16 @@ def generate_feature_research_pdf(report_data):
             story.append(Paragraph(f"Why better: {alt['why_better']}", body_style))
             story.append(Paragraph(f"Tradeoff: {alt['tradeoff']}", mono_style))
 
-    # Best libraries
     libs = report_data.get("best_libraries", [])
     if libs:
         story.append(Paragraph("BEST LIBRARIES & TOOLS", section_style))
         for lib in libs:
             story.append(Paragraph(f"• {lib['name']} — {lib['why']} (Best for: {lib['stack_fit']})", mono_style))
 
-    # Week 1 implementation
     if report_data.get("week1_implementation"):
         story.append(Paragraph("WEEK 1 IMPLEMENTATION (IF YOU GO AHEAD)", section_style))
         story.append(Paragraph(report_data["week1_implementation"], body_style))
 
-    # Starter prompt
     if report_data.get("starter_prompt"):
         story.append(Paragraph("READY-TO-PASTE CLAUDE/CURSOR PROMPT", section_style))
         story.append(Paragraph(report_data["starter_prompt"], mono_style))
@@ -1074,10 +1101,6 @@ def main_app():
 
 @app.route("/mode", methods=["POST"])
 def switch_mode():
-    """
-    Manually switch between founder and researcher mode.
-    Expects: { mode: "founder" | "researcher" }
-    """
     data = request.json
     mode = data.get("mode", MODE_FOUNDER)
     if mode not in [MODE_FOUNDER, MODE_RESEARCHER]:
@@ -1086,7 +1109,6 @@ def switch_mode():
     set_session_mode(mode)
     session_id = get_or_create_session()
 
-    # Clear chat history when switching modes so context doesn't bleed
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM messages WHERE session_id = %s", (session_id,))
@@ -1116,7 +1138,6 @@ def chat():
     try:
         data = request.json
         user_message = data.get("message", "")
-        # Allow frontend to force a mode, otherwise auto-detect on first message
         forced_mode = data.get("mode")
         session_id = get_or_create_session()
         history = get_messages(session_id)
@@ -1127,7 +1148,6 @@ def chat():
             current_mode = forced_mode
             set_session_mode(current_mode)
         elif len(history) == 0:
-            # First message — auto-detect
             detected = detect_mode(user_message)
             if detected != current_mode:
                 current_mode = detected
@@ -1140,7 +1160,6 @@ def chat():
         web_context = ""
         if len(history) < 6 and len(user_message) > 15:
             if current_mode == MODE_RESEARCHER:
-                # Extract feature + app type for targeted search
                 web_context_raw = search_feature_research(user_message, "")
             else:
                 web_context_raw = search_competitors(user_message)
@@ -1159,7 +1178,6 @@ def chat():
         if len(history) == 1:
             update_session_title(session_id, user_message)
 
-        # Inject recent context
         context_note = ""
         if len(history) > 2:
             context_note = "\n\n[CONVERSATION HISTORY — read before responding, do NOT repeat what's already been asked]:\n"
@@ -1195,13 +1213,19 @@ def chat():
                 clean_reply = "Hit the **Generate My Feature Report** button below."
             show_report = True
         else:
-            # Check for report triggers
-            show_report = (
+            show_report_raw = (
                 "SHOW_REPORT_BUTTON" in reply or
                 "GENERATE_FEATURE_REPORT_NOW" in reply
             )
             clean_reply = reply.replace("SHOW_REPORT_BUTTON", "").replace("GENERATE_FEATURE_REPORT_NOW", "").strip()
             clean_reply = re.sub(r'PERSONA:\s*[\w\s]+', '', clean_reply).strip()
+
+            # ── REPORT BUTTON GUARD — only show if enough context exists ──
+            if show_report_raw:
+                ok, _ = has_enough_context(get_messages(session_id))
+                show_report = ok
+            else:
+                show_report = False
 
         save_message(session_id, "assistant", clean_reply)
 
@@ -1209,7 +1233,7 @@ def chat():
             "reply": clean_reply,
             "show_report": show_report,
             "session_id": session_id,
-            "mode": current_mode  # Always return current mode so frontend can update UI
+            "mode": current_mode
         })
     except Exception as e:
         print(f"CHAT ERROR: {e}")
@@ -1227,6 +1251,12 @@ def generate_report():
     try:
         session_id = get_or_create_session()
         history = get_messages(session_id)
+
+        # ── GUARD: refuse if not enough conversation has happened ──
+        ok, reason = has_enough_context(history)
+        if not ok:
+            return jsonify({"error": reason}), 400
+
         conversation = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in history])
 
         messages = [
@@ -1281,19 +1311,19 @@ def generate_report():
 
 @app.route("/feature-report", methods=["POST"])
 def generate_feature_report():
-    """
-    Generates a Feature Research Report for Researcher mode.
-    Reads the current conversation and produces a structured feature analysis JSON.
-    """
     try:
         session_id = get_or_create_session()
         history = get_messages(session_id)
+
+        # ── GUARD: refuse if not enough conversation has happened ──
+        ok, reason = has_enough_context(history)
+        if not ok:
+            return jsonify({"error": reason}), 400
+
         conversation = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in history])
 
-        # Pull any feature/app context we can from conversation
         web_context = ""
         try:
-            # Try to extract feature name from conversation for targeted search
             feature_match = re.search(
                 r"(feature|adding|build|implement)[:\s]+([a-z\s]+?)(?:\s+(?:to|in|for)\s+([a-z\s]+))?[\.,\?]",
                 conversation.lower()
@@ -1323,7 +1353,6 @@ def generate_feature_report():
             return jsonify({"error": "Failed to parse feature report. Try again."}), 500
 
         report_id = str(uuid.uuid4())
-        # Tag it as a feature research report so download route knows which PDF to generate
         report_data["_report_type"] = "feature_research"
 
         conn = get_connection()
@@ -1585,7 +1614,6 @@ def download_report(report_id):
 
         report_data = json.loads(row[0])
 
-        # Route to correct PDF generator based on report type
         if report_data.get("_report_type") == "feature_research":
             pdf_buffer = generate_feature_research_pdf(report_data)
             filename = f'devscope-feature-research-{report_id[:8]}.pdf'
