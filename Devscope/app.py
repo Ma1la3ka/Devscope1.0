@@ -1448,7 +1448,7 @@ def generate_report():
         })
     except RateLimitError as e:
         wait = f" Try again in {int(e.retry_after)}s." if e.retry_after else " Try again in a minute."
-        return jsonify({"error": f"Rate limit hit.{wait} Upgrade at console.groq.com to generate reports without limits."}), 429
+        return jsonify({"error": f"Rate limit hit.{wait} Upgrade at aistudio.google.com to generate reports without limits."}), 429
     except Exception as e:
         print(f"REPORT ERROR: {e}")
         return jsonify({"error": "Something went wrong generating the report."}), 500
@@ -2077,32 +2077,29 @@ def get_usage():
         # plus ~3x overhead for system prompt + assistant replies per exchange
         estimated_tokens = int((chars_today / 4) * 4)
 
-        GROQ_FREE_TOKEN_LIMIT = 500_000
-        GROQ_FREE_REQUEST_LIMIT = 14_400
-        tokens_remaining = max(0, GROQ_FREE_TOKEN_LIMIT - estimated_tokens)
-        requests_remaining = max(0, GROQ_FREE_REQUEST_LIMIT - msgs_today)
+        GEMINI_FREE_RPD = 1_500
+        requests_remaining = max(0, GEMINI_FREE_RPD - msgs_today)
 
         warning = None
-        if tokens_remaining < 50_000 or requests_remaining < 100:
+        if requests_remaining < 100:
             warning = (
-                f"⚠️ You're running low — ~{tokens_remaining:,} tokens and "
-                f"{requests_remaining} requests left today. "
-                f"Limits reset at midnight UTC. Upgrade at console.groq.com for higher limits."
+                f"⚠️ You're running low — ~{requests_remaining} requests left today. "
+                f"Limits reset at midnight UTC. Upgrade at aistudio.google.com for higher limits."
             )
-        elif tokens_remaining < 150_000:
+        elif requests_remaining < 300:
             warning = (
-                f"Heads up — ~{tokens_remaining:,} tokens left today. "
+                f"Heads up — ~{requests_remaining} requests left today. "
                 f"Resets at midnight UTC."
             )
 
         return jsonify({
             "messages_today": msgs_today,
             "estimated_tokens_used": estimated_tokens,
-            "estimated_tokens_remaining": tokens_remaining,
+            "estimated_tokens_remaining": None,
             "requests_remaining": requests_remaining,
             "warning": warning,
-            "limit_info": "Groq free tier: ~500k tokens/day, ~14,400 requests/day. Resets midnight UTC.",
-            "upgrade_url": "https://console.groq.com"
+            "limit_info": "Gemini free tier: 1,500 requests/day. Resets midnight UTC.",
+            "upgrade_url": "https://aistudio.google.com"
         })
 
     except Exception as e:

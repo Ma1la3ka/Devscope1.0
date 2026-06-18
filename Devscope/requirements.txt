@@ -7,3 +7,4 @@ authlib
 gunicorn
 python-dotenv
 requests
+google-generativeai==0.8.6
