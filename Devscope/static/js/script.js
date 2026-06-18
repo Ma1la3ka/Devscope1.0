@@ -1333,10 +1333,12 @@ async function loadSession(id) {
     data.messages.forEach(m => appendMessage(m.role, m.content));
     loadSessions();
     scrollToBottom();
+
+    // Close sidebar + overlay on mobile
+    document.getElementById('sidebar').classList.remove('open');
     document.getElementById('sidebarOverlay').classList.remove('visible');
   } catch (err) {}
 }
-
 async function deleteSession(id) {
   if (!confirm('Delete this chat? Cannot be undone.')) return;
   try {
@@ -1393,6 +1395,7 @@ document.getElementById('newChatBtn').addEventListener('click', async () => {
       </div>`;
     loadSessions();
     document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebarOverlay').classList.remove('visible');
   } catch (err) {
     showToast('Failed to create new chat.');
   }
