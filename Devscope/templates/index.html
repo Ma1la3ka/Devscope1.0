@@ -2,7 +2,7 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <title>DevScope</title>
   <link rel="stylesheet" href="/static/css/style.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
@@ -50,6 +50,9 @@ pendo.initialize({ visitor: { id: 'anonymous' } });
     </div>
   </div>
 
+  <!-- SIDEBAR OVERLAY -->
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="document.getElementById('sidebar').classList.remove('open');this.classList.remove('visible')"></div>
+
   <!-- MAIN -->
   <div class="main">
 
@@ -63,7 +66,8 @@ pendo.initialize({ visitor: { id: 'anonymous' } });
         <button class="mode-toggle-btn" data-mode="researcher" onclick="setMode('researcher')">Researcher</button>
       </div>
       <button class="theme-toggle" id="themeToggle">🌙</button>
-      <button class="logout-btn" onclick="handleLogout()">⏻</button>
+      <!-- LOGOUT: plain text button, no confirm dialog -->
+      <button class="logout-btn" onclick="handleLogout()">Logout</button>
     </div>
 
     <!-- CONTENT ROW -->
@@ -107,7 +111,6 @@ pendo.initialize({ visitor: { id: 'anonymous' } });
 
         </div>
 
-        
         <!-- REPORT BAR -->
         <div class="report-bar" id="reportBar" style="display:none;">
           <button class="generate-report-btn" id="founderReportBtn" onclick="generateReport()">

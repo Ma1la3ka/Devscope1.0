@@ -32,7 +32,9 @@ function updateThemeBtn(theme) {
 }
 
 document.getElementById('menuBtn').addEventListener('click', () => {
-  document.getElementById('sidebar').classList.toggle('open');
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  overlay.classList.toggle('visible', sidebar.classList.toggle('open'));
 });
 
 function setupTextarea() {
@@ -1331,7 +1333,7 @@ async function loadSession(id) {
     data.messages.forEach(m => appendMessage(m.role, m.content));
     loadSessions();
     scrollToBottom();
-    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebarOverlay').classList.remove('visible');
   } catch (err) {}
 }
 

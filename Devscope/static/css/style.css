@@ -2005,3 +2005,147 @@ body::after {
     padding-bottom: calc(14px + env(safe-area-inset-bottom));
   }
 }
+
+/* ============================================================
+   MOBILE FIX PATCH — append this to the END of style.css
+   Fixes: (1) input hidden behind mobile browser bar
+          (2) logout as readable text button
+          (3) sidebar overlay wired up
+   ============================================================ */
+
+/* ── FIX 1: USE dvh SO INPUT IS NEVER HIDDEN BY BROWSER CHROME ── */
+/* dvh (dynamic viewport height) shrinks when the address bar shows.
+   This replaces all the height:100vh / height:100% that cause the
+   input to slide under the browser UI on mobile.                  */
+
+html, body {
+  height: 100dvh;          /* dynamic — adjusts when browser bar shows/hides */
+  overflow: hidden;
+}
+
+.sidebar {
+  height: 100dvh;
+}
+
+.main {
+  height: 100dvh;
+}
+
+/* The content row must fill whatever space is left after topbar */
+.content-row {
+  flex: 1;
+  min-height: 0;           /* required for flex children to shrink */
+  overflow: hidden;
+}
+
+/* Chat column is a flex column — chat-area scrolls, input sticks to bottom */
+.chat-column {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.chat-area {
+  flex: 1;
+  min-height: 0;           /* allows shrink — critical on mobile */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Input area always at the bottom, never hidden */
+.input-area {
+  flex-shrink: 0;
+  /* Safe area = home indicator bar on iPhone */
+  padding-bottom: max(14px, env(safe-area-inset-bottom));
+}
+
+/* Report bar also stays above the input, never disappears */
+.report-bar {
+  flex-shrink: 0;
+}
+
+/* Mobile stats toggle bar also stays fixed in the column */
+.mobile-stats-toggle {
+  flex-shrink: 0;
+}
+
+
+/* ── FIX 2: LOGOUT AS A READABLE TEXT BUTTON ──────────────────── */
+/* Remove the power-icon style, make it a clear labelled button    */
+
+.logout-btn {
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: var(--danger);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  transition: all 0.2s;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.logout-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--danger);
+}
+
+/* On very small screens shrink the text slightly */
+@media (max-width: 400px) {
+  .logout-btn {
+    font-size: 11px;
+    padding: 5px 9px;
+  }
+}
+
+
+/* ── FIX 3: SIDEBAR OVERLAY (wires up the backdrop tap-to-close) ─ */
+
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  z-index: 199;             /* just below sidebar (200) */
+}
+
+.sidebar-overlay.visible {
+  display: block;
+}
+
+
+/* ── FIX 4: TOPBAR CROWDING ON MOBILE ─────────────────────────── */
+/* Hide the long title text on phones so mode toggle & logout fit  */
+
+@media (max-width: 600px) {
+  .topbar-title {
+    display: none;
+  }
+
+  .topbar {
+    gap: 6px;
+    padding: 0 10px;
+  }
+
+  /* Give mode toggle room to breathe */
+  .mode-toggle {
+    flex: 1;
+    max-width: 180px;
+    justify-content: center;
+  }
+
+  .mode-toggle-btn {
+    padding: 5px 11px;
+    font-size: 11px;
+  }
+
+  .topbar-badge {
+    display: none;           /* too cramped alongside logout text */
+  }
+}
