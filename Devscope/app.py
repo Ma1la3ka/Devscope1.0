@@ -559,12 +559,18 @@ def get_or_create_session():
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO sessions (id, title, user_id) VALUES (%s, %s, %s)",
-            (session_id, "New Chat", session.get('user_id'))
+            "INSERT INTO sessions (id, title, user_id, mode) VALUES (%s, %s, %s, %s)",
+            (session_id, "New Chat", session.get('user_id'), get_session_mode())
         )
         conn.commit()
         cursor.close()
         conn.close()
+        # Tag this fresh session against whatever mode is currently active
+        # so a later manual /mode toggle can find it again instead of
+        # thinking no session exists yet for that mode.
+        mode_session_key = f"devscope_session_{get_session_mode()}"
+        if mode_session_key not in session:
+            session[mode_session_key] = session_id
     return session["session_id"]
 
 def get_messages(session_id):
@@ -1164,22 +1170,44 @@ def switch_mode():
     """
     Manually switch between founder and researcher mode.
     Expects: { mode: "founder" | "researcher" }
+
+    Mode switches NEVER delete history. Instead, each mode gets its own
+    session. Switching mode either resumes that mode's existing session
+    (if one exists and is empty/untouched is not required) or creates a
+    fresh one. The current session's id+mode pairing is remembered on
+    the Flask session so toggling back and forth preserves both threads.
     """
     data = request.json
     mode = data.get("mode", MODE_FOUNDER)
     if mode not in [MODE_FOUNDER, MODE_RESEARCHER]:
         return jsonify({"error": "Invalid mode"}), 400
 
-    set_session_mode(mode)
-    session_id = get_or_create_session()
+    mode_session_key = f"devscope_session_{mode}"
+    existing_session_id = session.get(mode_session_key)
 
-    # Clear chat history when switching modes so context doesn't bleed
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM messages WHERE session_id = %s", (session_id,))
-    conn.commit()
-    cursor.close()
-    conn.close()
+    if existing_session_id:
+        # Resume the session this mode already had — history intact
+        session_id = existing_session_id
+        session["session_id"] = session_id
+        history = get_messages(session_id)
+        is_resumed = len(history) > 0
+    else:
+        # First time entering this mode this session — create fresh
+        session_id = str(uuid.uuid4())
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO sessions (id, title, user_id, mode) VALUES (%s, %s, %s, %s)",
+            (session_id, "New Chat", session.get('user_id'), mode)
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        session["session_id"] = session_id
+        session[mode_session_key] = session_id
+        is_resumed = False
+
+    set_session_mode(mode)
 
     greeting = {
         MODE_FOUNDER: "Founder mode. No small talk — what are you building?",
@@ -1189,7 +1217,8 @@ def switch_mode():
     return jsonify({
         "mode": mode,
         "greeting": greeting[mode],
-        "session_id": session_id
+        "session_id": session_id,
+        "resumed": is_resumed
     })
 
 @app.route("/mode", methods=["GET"])
@@ -1219,7 +1248,16 @@ def chat():
             if detected != current_mode:
                 current_mode = detected
                 set_session_mode(current_mode)
-
+                conn2 = get_connection()
+                cursor2 = conn2.cursor()
+                cursor2.execute(
+                    "UPDATE sessions SET mode = %s WHERE id = %s",
+                    (current_mode, session_id)
+                )
+                conn2.commit()
+                cursor2.close()
+                conn2.close()
+                
         # ── SYSTEM PROMPT SELECTION ──
         system_prompt = RESEARCHER_SYSTEM_PROMPT if current_mode == MODE_RESEARCHER else SYSTEM_PROMPT
 
@@ -1804,13 +1842,16 @@ def get_sessions():
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT id, title, created_at FROM sessions WHERE user_id = %s ORDER BY created_at DESC",
+        "SELECT id, title, created_at, mode FROM sessions WHERE user_id = %s ORDER BY created_at DESC",
         (user_id,)
     )
     rows = cursor.fetchall()
     cursor.close()
     conn.close()
-    return jsonify([{"id": r[0], "title": r[1], "created_at": str(r[2])} for r in rows])
+    return jsonify([
+        {"id": r[0], "title": r[1], "created_at": str(r[2]), "mode": r[3] or "founder"}
+        for r in rows
+    ])
 
 @app.route("/sessions/<session_id>", methods=["GET"])
 def get_session(session_id):
@@ -1839,15 +1880,19 @@ def delete_session(session_id):
 def new_chat():
     new_id = str(uuid.uuid4())
     session["session_id"] = new_id
+    session.pop("devscope_session_founder", None)
+    session.pop("devscope_session_researcher", None)
+    session["devscope_mode"] = MODE_FOUNDER
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO sessions (id, title, user_id) VALUES (%s, %s, %s)",
-        (new_id, "New Chat", session.get('user_id'))
+        cursor.execute(
+        "INSERT INTO sessions (id, title, user_id, mode) VALUES (%s, %s, %s, %s)",
+        (new_id, "New Chat", session.get('user_id'), MODE_FOUNDER)
     )
     conn.commit()
     cursor.close()
     conn.close()
+    session["devscope_session_founder"] = new_id
     return jsonify({"session_id": new_id})
 
 @app.route("/share/<report_id>", methods=["GET"])

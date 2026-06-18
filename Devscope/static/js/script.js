@@ -74,12 +74,17 @@ async function setMode(mode) {
     document.getElementById('messages').innerHTML = '';
     document.getElementById('reportBar').style.display = 'none';
     hideWelcome();
-    appendMessage('assistant', data.greeting);
+
+    if (data.resumed) {
+      const res2 = await fetch(`/sessions/${currentSessionId}`);
+      const sessionData = await res2.json();
+      sessionData.messages.forEach(m => appendMessage(m.role, m.content));
+      if (sessionData.messages.length > 0) showReportButton();
+    } else {
+      appendMessage('assistant', data.greeting);
+    }
+
     loadSessions();
-  } catch (err) {
-    showToast('Failed to switch mode.');
-  }
-}
 
 function updateModeUI(mode) {
   document.querySelectorAll('.mode-toggle-btn').forEach(btn => {
@@ -1310,15 +1315,21 @@ async function loadSessions() {
       return;
     }
     list.innerHTML = `<div class="session-group-label">Recent</div>` +
-      sessions.map(s => `
+      sessions.map(s => {
+        const mode = s.mode === 'researcher' ? 'researcher' : 'founder';
+        const tag = mode === 'researcher' ? 'R' : 'F';
+        const tagLabel = mode === 'researcher' ? 'Researcher mode' : 'Founder mode';
+        return `
         <div class="session-item ${s.id === currentSessionId ? 'active' : ''}"
              onclick="loadSession('${s.id}')">
+          <span class="session-mode-tag tag-${mode}" title="${tagLabel}">${tag}</span>
           <span class="session-title">${s.title || 'New Chat'}</span>
           <button class="session-delete-btn"
             onclick="event.stopPropagation(); deleteSession('${s.id}')"
             title="Delete">✕</button>
         </div>
-      `).join('');
+      `;
+      }).join('');
     
   } catch (err) {}
 }

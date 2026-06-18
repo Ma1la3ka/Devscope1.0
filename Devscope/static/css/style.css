@@ -267,6 +267,32 @@ body::after {
   line-height: 1;
 }
 
+.session-mode-tag {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+  cursor: help;
+}
+
+.tag-founder {
+  background: rgba(79,158,255,0.15);
+  color: var(--accent);
+  border: 1px solid rgba(79,158,255,0.3);
+}
+
+.tag-researcher {
+  background: rgba(124,58,237,0.15);
+  color: var(--accent2);
+  border: 1px solid rgba(124,58,237,0.3);
+}
+
 .session-item:hover .session-delete-btn { opacity: 1; }
 .session-delete-btn:hover { background: rgba(239,68,68,0.15); color: var(--danger); }
 
