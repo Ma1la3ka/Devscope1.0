@@ -1355,7 +1355,7 @@ def chat():
             )
             clean_reply = reply.replace("SHOW_REPORT_BUTTON", "").replace("GENERATE_FEATURE_REPORT_NOW", "").strip()
             clean_reply = re.sub(r'PERSONA:\s*[\w\s]+', '', clean_reply).strip()
-ce how often you send messages.",
+
             # Gate the button on minimum context
             if triggered:
                 ok, _ = has_enough_context(get_messages(session_id), current_mode)
@@ -1448,7 +1448,7 @@ def generate_report():
         })
     except RateLimitError as e:
         wait = f" Try again in {int(e.retry_after)}s." if e.retry_after else " Try again in a minute."
-        return jsonify({"error": f"Rate limit hit.{wait} Upgrade at aistudio.google.com to generate reports without limits."}), 429
+        return jsonify({"error": f"Rate limit hit.{wait} Upgrade at console.groq.com to generate reports without limits."}), 429
     except Exception as e:
         print(f"REPORT ERROR: {e}")
         return jsonify({"error": "Something went wrong generating the report."}), 500
@@ -1524,7 +1524,7 @@ def generate_feature_report():
         })
     except RateLimitError as e:
         wait = f" Try again in {int(e.retry_after)}s." if e.retry_after else " Try again in a minute."
-        return jsonify({"error": f"Rate limit hit.{wait} Upgrade at aistudio.google.com to generate reports without limits."}), 429
+        return jsonify({"error": f"Rate limit hit.{wait} Upgrade at console.groq.com to generate reports without limits."}), 429
     except Exception as e:
         print(f"FEATURE REPORT ERROR: {e}")
         return jsonify({"error": "Something went wrong generating the feature report."}), 500
