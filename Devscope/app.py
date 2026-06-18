@@ -1257,7 +1257,7 @@ def chat():
                 conn2.commit()
                 cursor2.close()
                 conn2.close()
-                
+
         # ── SYSTEM PROMPT SELECTION ──
         system_prompt = RESEARCHER_SYSTEM_PROMPT if current_mode == MODE_RESEARCHER else SYSTEM_PROMPT
 
@@ -1885,7 +1885,7 @@ def new_chat():
     session["devscope_mode"] = MODE_FOUNDER
     conn = get_connection()
     cursor = conn.cursor()
-        cursor.execute(
+    cursor.execute(
         "INSERT INTO sessions (id, title, user_id, mode) VALUES (%s, %s, %s, %s)",
         (new_id, "New Chat", session.get('user_id'), MODE_FOUNDER)
     )

@@ -85,6 +85,10 @@ async function setMode(mode) {
     }
 
     loadSessions();
+  } catch (err) {
+    showToast('Failed to switch mode.');
+  }
+}
 
 function updateModeUI(mode) {
   document.querySelectorAll('.mode-toggle-btn').forEach(btn => {
