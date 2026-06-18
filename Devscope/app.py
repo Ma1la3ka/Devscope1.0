@@ -617,6 +617,12 @@ def get_report_for_session(session_id):
 
 # ── GROQ HELPER ─────────────────────────────────────────────────────────────
 
+class RateLimitError(Exception):
+    """Raised when Groq returns a 429 / rate-limit response."""
+    def __init__(self, retry_after=None):
+        self.retry_after = retry_after
+        super().__init__("Groq rate limit hit")
+
 def call_groq(messages, max_tokens=1024):
     try:
         response = groq_client.chat.completions.create(
@@ -627,7 +633,27 @@ def call_groq(messages, max_tokens=1024):
             timeout=60
         )
         return response.choices[0].message.content
+
     except Exception as e:
+        err_str = str(e).lower()
+        if (
+            "429" in err_str or
+            "rate limit" in err_str or
+            "rate_limit" in err_str or
+            "too many requests" in err_str or
+            "tokens per" in err_str or
+            "requests per" in err_str
+        ):
+            retry_after = None
+            m = re.search(r"try again in\s+([\d.]+)s", err_str)
+            if m:
+                try:
+                    retry_after = float(m.group(1))
+                except Exception:
+                    pass
+            print(f"Groq rate limit hit. retry_after={retry_after}s. Raw: {e}")
+            raise RateLimitError(retry_after=retry_after)
+
         print(f"Groq call failed: {e}")
         raise e
 
@@ -1285,6 +1311,14 @@ def chat():
             "session_id": session_id,
             "mode": current_mode  # Always return current mode so frontend can update UI
         })
+    except RateLimitError as e:
+        wait = f" Try again in {int(e.retry_after)}s." if e.retry_after else " Try again in a minute."
+        return jsonify({
+            "reply": f"⚡ You've hit Groq's free tier rate limit.{wait} To avoid this, upgrade your Groq API key at console.groq.com or reduce how often you send messages.",
+            "show_report": False,
+            "rate_limited": True,
+            "retry_after": e.retry_after
+        }), 429
     except Exception as e:
         print(f"CHAT ERROR: {e}")
         return jsonify({"reply": "Something went wrong. Please try again."}), 500
@@ -1352,6 +1386,9 @@ def generate_report():
             "stack_known": stack_known,
             "stack": stack if stack_known else None
         })
+    except RateLimitError as e:
+        wait = f" Try again in {int(e.retry_after)}s." if e.retry_after else " Try again in a minute."
+        return jsonify({"error": f"Rate limit hit.{wait} Upgrade at console.groq.com to generate reports without limits."}), 429
     except Exception as e:
         print(f"REPORT ERROR: {e}")
         return jsonify({"error": "Something went wrong generating the report."}), 500
@@ -1425,6 +1462,9 @@ def generate_feature_report():
             "report_id": report_id,
             "report_type": "feature_research"
         })
+    except RateLimitError as e:
+        wait = f" Try again in {int(e.retry_after)}s." if e.retry_after else " Try again in a minute."
+        return jsonify({"error": f"Rate limit hit.{wait} Upgrade at console.groq.com to generate reports without limits."}), 429
     except Exception as e:
         print(f"FEATURE REPORT ERROR: {e}")
         return jsonify({"error": "Something went wrong generating the feature report."}), 500
@@ -1916,3 +1956,93 @@ def google_callback():
 if __name__ == "__main__":
     init_db()
     app.run(debug=True)
+
+# ── USAGE / RATE LIMIT STATUS ROUTE ──────────────────────────────────────────
+
+@app.route("/usage", methods=["GET"])
+def get_usage():
+    """
+    Returns token/request usage for the current session today.
+    Counts messages sent, estimates tokens used, and warns when close to Groq free limits.
+    Groq free tier limits (as of 2024): 14,400 req/day, ~500k tokens/day for llama-3.3-70b
+    """
+    try:
+        session_id = session.get("session_id")
+        if not session_id:
+            return jsonify({
+                "messages_today": 0,
+                "estimated_tokens_used": 0,
+                "estimated_tokens_remaining": 500000,
+                "warning": None,
+                "limit_info": "Groq free tier: ~500k tokens/day, ~14,400 requests/day"
+            })
+
+        conn = get_connection()
+        cursor = conn.cursor()
+        # Count all messages sent by the user today across all their sessions
+        user_id = session.get("user_id")
+        if user_id:
+            cursor.execute("""
+                SELECT COUNT(*), COALESCE(SUM(LENGTH(content)), 0)
+                FROM messages m
+                JOIN sessions s ON m.session_id = s.id
+                WHERE s.user_id = %s
+                  AND m.role = 'user'
+                  AND DATE(m.timestamp) = CURRENT_DATE
+            """, (user_id,))
+        else:
+            cursor.execute("""
+                SELECT COUNT(*), COALESCE(SUM(LENGTH(content)), 0)
+                FROM messages
+                WHERE session_id = %s
+                  AND role = 'user'
+                  AND DATE(timestamp) = CURRENT_DATE
+            """, (session_id,))
+
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        msgs_today = row[0] if row else 0
+        chars_today = row[1] if row else 0
+
+        # Rough token estimate: ~4 chars per token for user messages,
+        # plus ~3x overhead for system prompt + assistant replies per exchange
+        estimated_tokens = int((chars_today / 4) * 4)
+
+        GROQ_FREE_TOKEN_LIMIT = 500_000
+        GROQ_FREE_REQUEST_LIMIT = 14_400
+        tokens_remaining = max(0, GROQ_FREE_TOKEN_LIMIT - estimated_tokens)
+        requests_remaining = max(0, GROQ_FREE_REQUEST_LIMIT - msgs_today)
+
+        warning = None
+        if tokens_remaining < 50_000 or requests_remaining < 100:
+            warning = (
+                f"⚠️ You're running low — ~{tokens_remaining:,} tokens and "
+                f"{requests_remaining} requests left today. "
+                f"Limits reset at midnight UTC. Upgrade at console.groq.com for higher limits."
+            )
+        elif tokens_remaining < 150_000:
+            warning = (
+                f"Heads up — ~{tokens_remaining:,} tokens left today. "
+                f"Resets at midnight UTC."
+            )
+
+        return jsonify({
+            "messages_today": msgs_today,
+            "estimated_tokens_used": estimated_tokens,
+            "estimated_tokens_remaining": tokens_remaining,
+            "requests_remaining": requests_remaining,
+            "warning": warning,
+            "limit_info": "Groq free tier: ~500k tokens/day, ~14,400 requests/day. Resets midnight UTC.",
+            "upgrade_url": "https://console.groq.com"
+        })
+
+    except Exception as e:
+        print(f"USAGE CHECK ERROR: {e}")
+        return jsonify({
+            "messages_today": 0,
+            "estimated_tokens_remaining": None,
+            "warning": None,
+            "error": "Could not fetch usage data"
+        })
