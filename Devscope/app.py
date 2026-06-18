@@ -1,10 +1,11 @@
 import warnings
 warnings.filterwarnings("ignore")
 from flask import Flask, request, jsonify, render_template, session, send_file, redirect, url_for
-from groq import Groq
+# from groq import Groq
+import google.generativeai as genai
 from tavily import TavilyClient
 from database import get_connection, init_db
-from config import GROQ_API_KEY, TAVILY_API_KEY, SECRET_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+from config import GEMINI_API_KEY, TAVILY_API_KEY, SECRET_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
@@ -21,9 +22,9 @@ from datetime import datetime
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
-groq_client = Groq(api_key=GROQ_API_KEY)
+genai.configure(api_key=GEMINI_API_KEY)
 tavily = TavilyClient(api_key=TAVILY_API_KEY)
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "gemini-2.0-flash"
 
 # ── MODE CONSTANTS ──────────────────────────────────────────────────────────
 MODE_FOUNDER = "founder"
@@ -624,43 +625,64 @@ def get_report_for_session(session_id):
 # ── GROQ HELPER ─────────────────────────────────────────────────────────────
 
 class RateLimitError(Exception):
-    """Raised when Groq returns a 429 / rate-limit response."""
+    """Raised when Gemini returns a 429 / quota exceeded response."""
     def __init__(self, retry_after=None):
         self.retry_after = retry_after
-        super().__init__("Groq rate limit hit")
+        super().__init__("Gemini rate limit hit")
 
 def call_groq(messages, max_tokens=1024):
     try:
-        response = groq_client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=0.3,
-            timeout=60
+        system_instruction = ""
+        gemini_history = []
+
+        for m in messages:
+            if m["role"] == "system":
+                system_instruction = m["content"]
+            elif m["role"] == "user":
+                gemini_history.append({"role": "user", "parts": [m["content"]]})
+            elif m["role"] == "assistant":
+                gemini_history.append({"role": "model", "parts": [m["content"]]})
+
+        last_user_msg = None
+        history_to_send = []
+        for msg in gemini_history:
+            if msg == gemini_history[-1] and msg["role"] == "user":
+                last_user_msg = msg["parts"][0]
+            else:
+                history_to_send.append(msg)
+
+        model = genai.GenerativeModel(
+            model_name=MODEL,
+            system_instruction=system_instruction if system_instruction else None,
+            generation_config=genai.types.GenerationConfig(
+                max_output_tokens=max_tokens,
+                temperature=0.3,
+            )
         )
-        return response.choices[0].message.content
+
+        chat = model.start_chat(history=history_to_send)
+        response = chat.send_message(last_user_msg)
+        return response.text
 
     except Exception as e:
         err_str = str(e).lower()
         if (
             "429" in err_str or
-            "rate limit" in err_str or
-            "rate_limit" in err_str or
-            "too many requests" in err_str or
-            "tokens per" in err_str or
-            "requests per" in err_str
+            "quota" in err_str or
+            "resource_exhausted" in err_str or
+            "rate" in err_str
         ):
             retry_after = None
-            m = re.search(r"try again in\s+([\d.]+)s", err_str)
+            m = re.search(r"retry after (\d+)", err_str)
             if m:
                 try:
                     retry_after = float(m.group(1))
                 except Exception:
                     pass
-            print(f"Groq rate limit hit. retry_after={retry_after}s. Raw: {e}")
+            print(f"Gemini rate limit hit. retry_after={retry_after}s. Raw: {e}")
             raise RateLimitError(retry_after=retry_after)
 
-        print(f"Groq call failed: {e}")
+        print(f"Gemini call failed: {e}")
         raise e
 
 def parse_json_response(raw):
@@ -1333,7 +1355,7 @@ def chat():
             )
             clean_reply = reply.replace("SHOW_REPORT_BUTTON", "").replace("GENERATE_FEATURE_REPORT_NOW", "").strip()
             clean_reply = re.sub(r'PERSONA:\s*[\w\s]+', '', clean_reply).strip()
-
+ce how often you send messages.",
             # Gate the button on minimum context
             if triggered:
                 ok, _ = has_enough_context(get_messages(session_id), current_mode)
@@ -1352,7 +1374,7 @@ def chat():
     except RateLimitError as e:
         wait = f" Try again in {int(e.retry_after)}s." if e.retry_after else " Try again in a minute."
         return jsonify({
-            "reply": f"⚡ You've hit Groq's free tier rate limit.{wait} To avoid this, upgrade your Groq API key at console.groq.com or reduce how often you send messages.",
+            "reply": f"⚡ You've hit Gemini's free tier rate limit.{wait} To avoid this, upgrade your API key at aistudio.google.com or reduce how often you send messages.",
             "show_report": False,
             "rate_limited": True,
             "retry_after": e.retry_after
@@ -1426,7 +1448,7 @@ def generate_report():
         })
     except RateLimitError as e:
         wait = f" Try again in {int(e.retry_after)}s." if e.retry_after else " Try again in a minute."
-        return jsonify({"error": f"Rate limit hit.{wait} Upgrade at console.groq.com to generate reports without limits."}), 429
+        return jsonify({"error": f"Rate limit hit.{wait} Upgrade at aistudio.google.com to generate reports without limits."}), 429
     except Exception as e:
         print(f"REPORT ERROR: {e}")
         return jsonify({"error": "Something went wrong generating the report."}), 500
@@ -1502,7 +1524,7 @@ def generate_feature_report():
         })
     except RateLimitError as e:
         wait = f" Try again in {int(e.retry_after)}s." if e.retry_after else " Try again in a minute."
-        return jsonify({"error": f"Rate limit hit.{wait} Upgrade at console.groq.com to generate reports without limits."}), 429
+        return jsonify({"error": f"Rate limit hit.{wait} Upgrade at aistudio.google.com to generate reports without limits."}), 429
     except Exception as e:
         print(f"FEATURE REPORT ERROR: {e}")
         return jsonify({"error": "Something went wrong generating the feature report."}), 500
