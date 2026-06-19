@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.documentElement.setAttribute('data-theme', theme);
   updateThemeBtn(theme);
   startNotificationPolling();
-  
+
     if (currentSessionId) {
     restoreSessionReport(currentSessionId);
   }
@@ -33,6 +33,15 @@ document.getElementById('themeToggle').addEventListener('click', () => {
 
 function updateThemeBtn(theme) {
   document.getElementById('themeToggle').textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+
+function openFullReport() {
+  if (!reportData) {
+    showToast('No report loaded yet.');
+    return;
+  }
+  renderReport(reportData);
+  document.getElementById('reportModal').style.display = 'flex';
 }
 
 document.getElementById('menuBtn').addEventListener('click', () => {
@@ -1162,9 +1171,9 @@ function updateStatsPanel(r) {
     </div>` : ''}
 
     <button class="stats-report-btn"
-      onclick="document.getElementById('reportModal').style.display='flex'">
-      View Full Report
-    </button>
+       onclick="openFullReport()">
+       View Full Report
+  </button>
     <button class="stats-report-btn secondary" onclick="downloadReport()">
       ⬇ Download PDF
     </button>
@@ -1625,19 +1634,24 @@ async function copyReport() {
   showToast('Report copied');
 }
 
+function downloadReport() {
+  if (!currentReportId) {
+    showToast('No report available. Generate one first.');
+    return;
+  }
+  window.open(`/report/${currentReportId}/download`, '_blank');
+}
+
 async function shareReport() {
-  if (!currentReportId) return;
+  if (!currentReportId) {
+    showToast('No report available. Generate one first.');
+    return;
+  }
   await navigator.clipboard.writeText(
     `${window.location.origin}/share/${currentReportId}`
   );
   showToast('Share link copied');
 }
-
-function downloadReport() {
-  if (!currentReportId) return;
-  window.open(`/report/${currentReportId}/download`, '_blank');
-}
-
 function copyBuildPrompt() {
   if (!reportData?.build_prompt) return;
   navigator.clipboard.writeText(reportData.build_prompt);
