@@ -406,10 +406,9 @@ async function startDeepDive(reportId, stack) {
   }
 }
 
-// ── ASYNC FEATURE ANALYSIS POLLING ────────────────────────────────────────
-
 function startFeatureAnalysisPolling(reportId) {
   if (featureAnalysisInterval) clearInterval(featureAnalysisInterval);
+  let pollAttempts = 0;
 
   showAnalysisStatus('🔍 Analyzing features in background...');
 
@@ -418,31 +417,35 @@ function startFeatureAnalysisPolling(reportId) {
       const res = await fetch(`/report/${reportId}/feature-analysis`);
       const data = await res.json();
 
+      pollAttempts++;
+
       if (data.analyses && Object.keys(data.analyses).length > 0) {
-        // Update report data with new analyses
         if (reportData) {
           reportData.feature_analyses = data.analyses;
           updateFeatureAnalysisCards(data.analyses);
         }
-
-        updateAnalysisStatus(
-          `🔍 Analyzing features... ${data.completed}/${data.total} done`
-        );
+        updateAnalysisStatus(`🔍 Analyzing features... ${data.completed}/${data.total} done`);
       }
 
-      if (data.done) {
+      if (data.done || pollAttempts > 20) {
         clearInterval(featureAnalysisInterval);
         featureAnalysisInterval = null;
-        updateAnalysisStatus('✅ Deep feature analysis complete!');
+        pollAttempts = 0;
+        updateAnalysisStatus(data.done ? '✅ Deep feature analysis complete!' : '⚠ Analysis timed out.');
         setTimeout(hideAnalysisStatus, 3000);
-
         if (reportData) {
           renderReport(reportData);
           updateStatsPanel(reportData);
         }
       }
     } catch (err) {
-      // Silent fail — analysis is background
+      pollAttempts++;
+      if (pollAttempts > 20) {
+        clearInterval(featureAnalysisInterval);
+        featureAnalysisInterval = null;
+        pollAttempts = 0;
+        hideAnalysisStatus();
+      }
     }
   }, 3000);
 }

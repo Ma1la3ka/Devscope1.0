@@ -1841,6 +1841,8 @@ Claude usage plan: {report_data.get('claude_usage', 'Not specified')}
         ]
 
         raw = call_groq(messages, max_tokens=2000)
+        if not raw or not raw.strip():
+            return jsonify({"error": "Model returned empty response. Try again."}), 500
         prompt_data = parse_json_response(raw)
 
         return jsonify({"prompts": prompt_data})
