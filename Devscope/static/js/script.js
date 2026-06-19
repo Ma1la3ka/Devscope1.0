@@ -15,6 +15,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.documentElement.setAttribute('data-theme', theme);
   updateThemeBtn(theme);
   startNotificationPolling();
+  
+    if (currentSessionId) {
+    restoreSessionReport(currentSessionId);
+  }
 });
 
 // ── THEME ─────────────────────────────────────────────────────────────────
@@ -1392,7 +1396,65 @@ async function loadSession(id) {
     // Close sidebar + overlay on mobile
     document.getElementById('sidebar').classList.remove('open');
     document.getElementById('sidebarOverlay').classList.remove('visible');
+
+    // ── RESTORE REPORT + STATS ON SESSION LOAD ──
+    await restoreSessionReport(id);
+
   } catch (err) {}
+}
+
+async function restoreSessionReport(sessionId) {
+  try {
+    const res = await fetch(`/session/${sessionId}/latest-report`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.report_id) return;
+
+    reportData = data.report;
+    currentReportId = data.report_id;
+
+    updateStatsPanel(data.report);
+
+    // Show report bar if conversation was far enough
+    if (data.report) {
+      document.getElementById('reportBar').style.display = 'flex';
+    }
+
+    // If deep dive data exists, restore that too
+    if (data.report.deep_dive_summary) {
+      updateStatsPanelWithDeepDive(data.report.deep_dive_summary);
+    }
+
+  } catch (err) {
+    // No report for this session yet — that's fine
+  }
+}
+
+async function restoreSessionReport(sessionId) {
+  try {
+    const res = await fetch(`/session/${sessionId}/latest-report`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.report_id) return;
+
+    reportData = data.report;
+    currentReportId = data.report_id;
+
+    updateStatsPanel(data.report);
+
+    // Show report bar if conversation was far enough
+    if (data.report) {
+      document.getElementById('reportBar').style.display = 'flex';
+    }
+
+    // If deep dive data exists, restore that too
+    if (data.report.deep_dive_summary) {
+      updateStatsPanelWithDeepDive(data.report.deep_dive_summary);
+    }
+
+  } catch (err) {
+    // No report for this session yet — that's fine
+  }
 }
 async function deleteSession(id) {
   if (!confirm('Delete this chat? Cannot be undone.')) return;

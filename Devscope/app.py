@@ -1882,6 +1882,31 @@ def download_report(report_id):
         print(f"PDF ERROR: {e}")
         return "Failed to generate PDF", 500
 
+@app.route("/session/<session_id>/latest-report", methods=["GET"])
+def get_latest_report(session_id):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, report_json FROM reports WHERE session_id = %s ORDER BY created_at DESC LIMIT 1",
+            (session_id,)
+        )
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not row:
+            return jsonify({"report_id": None}), 200
+
+        report_data = json.loads(row[1])
+        return jsonify({
+            "report_id": row[0],
+            "report": report_data
+        })
+    except Exception as e:
+        print(f"LATEST REPORT ERROR: {e}")
+        return jsonify({"report_id": None}), 200
+    
 @app.route("/notifications", methods=["GET"])
 def get_notifications():
     try:
