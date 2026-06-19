@@ -54,7 +54,7 @@ function handleKey(e) {
 
 async function setMode(mode) {
   if (mode === currentMode) return;
-
+ 
   try {
     const res = await fetch('/mode', {
       method: 'POST',
@@ -66,28 +66,65 @@ async function setMode(mode) {
       showToast('Could not switch mode.');
       return;
     }
-
+ 
     currentMode = data.mode;
     currentSessionId = data.session_id;
     updateModeUI(currentMode);
-
-    document.getElementById('messages').innerHTML = '';
+ 
+    // Always hide report bar when switching — each mode tracks its own state
     document.getElementById('reportBar').style.display = 'none';
-    hideWelcome();
-
-    if (data.resumed) {
-      const res2 = await fetch(`/sessions/${currentSessionId}`);
-      const sessionData = await res2.json();
-      sessionData.messages.forEach(m => appendMessage(m.role, m.content));
-      if (sessionData.messages.length > 0) showReportButton();
+ 
+    if (data.resumed && data.resumed === true) {
+      // This mode had a previous conversation — reload it
+      document.getElementById('messages').innerHTML = '';
+      hideWelcome();
+ 
+      try {
+        const sessRes = await fetch(`/sessions/${data.session_id}`);
+        const sessData = await sessRes.json();
+        if (sessData.messages && sessData.messages.length > 0) {
+          sessData.messages.forEach(m => appendMessage(m.role, m.content));
+          // Add a subtle divider so user knows they're back in this context
+          addModeDivider(mode);
+          scrollToBottom();
+        } else {
+          // Session exists but is empty
+          appendMessage('assistant', data.greeting);
+        }
+      } catch (e) {
+        appendMessage('assistant', data.greeting);
+      }
+ 
     } else {
+      // Fresh mode — show greeting on clean slate
+      document.getElementById('messages').innerHTML = '';
+      document.getElementById('welcome').style.display = 'none';
       appendMessage('assistant', data.greeting);
     }
-
+ 
     loadSessions();
+ 
   } catch (err) {
     showToast('Failed to switch mode.');
   }
+}
+ 
+// Adds a subtle visual divider so user sees "you're back in X mode"
+function addModeDivider(mode) {
+  const messages = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.style.cssText = `
+    text-align: center;
+    font-size: 11px;
+    color: var(--text3);
+    font-family: var(--mono);
+    letter-spacing: 0.06em;
+    padding: 8px 0 4px;
+    border-top: 1px solid var(--border);
+    margin: 8px 0;
+  `;
+  div.textContent = `— resumed ${mode} mode —`;
+  messages.appendChild(div);
 }
 
 function updateModeUI(mode) {

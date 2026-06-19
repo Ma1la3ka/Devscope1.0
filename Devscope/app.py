@@ -186,6 +186,15 @@ If the user is asking DevScope for something (recommendations, opinions, help,
 information) rather than talking about what THEY are building — it's off-topic.
 One sentence redirect: "Yo, I am not interested in that shit — what are YOU building or what have you shipped this month😎😏?"
 
+CRITICAL EXCEPTION — never fire this redirect if:
+- The user is asking for DevScope's opinion ON a product topic already being discussed
+- The user says "I don't know", "what do you think", "not sure", "you decide" — these are INVITATIONS to advise, not off-topic messages
+- The conversation already has product context established
+
+When a user defers like "I don't know what do you think" mid-conversation → DevScope picks the strongest option and defends it in one sentence, then moves the conversation forward.
+Example: "Escrow-based payment release — it's the only one that removes the he-said-she-said problem entirely. Now, who holds the escrow funds?"
+
+
 If CLEARLY NO → one sentence redirect, nothing else. Resume flow only when they pitch something.
 
 OFF-TOPIC SIGNALS (must hit ALL of these to be truly off-topic):
@@ -701,16 +710,44 @@ def call_groq(messages, max_tokens=1024):
 
     raise RateLimitError(retry_after=None)
 
-def parse_json_response(raw):
-    raw = raw.strip()
-    raw = re.sub(r'^```json\s*', '', raw)
-    raw = re.sub(r'^```\s*', '', raw)
-    raw = re.sub(r'```$', '', raw)
-    raw = raw.strip()
-    match = re.search(r'\{[\s\S]*\}', raw)
-    if match:
-        raw = match.group(0)
-    return json.loads(raw)
+import re
+import json
+ 
+def parse_json_response(raw: str) -> dict:
+    """
+    Robustly extract and parse a JSON object from a Gemini response.
+    Handles:
+      - ```json ... ``` fences
+      - ``` ... ``` fences (no language tag)
+      - Leading/trailing whitespace or prose
+      - Trailing commas before } or ] (common Gemini mistake)
+      - Unicode escapes
+    """
+    if not raw:
+        raise ValueError("Empty response from model")
+ 
+    # 1. Strip leading/trailing whitespace
+    text = raw.strip()
+ 
+    # 2. Remove ALL markdown code fences (handles ```json, ```JSON, ```, etc.)
+    #    Use a non-greedy match so we grab only what's inside the first fence block
+    fence_match = re.search(r'```(?:json|JSON)?\s*([\s\S]*?)```', text)
+    if fence_match:
+        text = fence_match.group(1).strip()
+ 
+    # 3. Extract the outermost { ... } block
+    #    (handles cases where the model adds prose before/after the JSON)
+    brace_match = re.search(r'\{[\s\S]*\}', text)
+    if brace_match:
+        text = brace_match.group(0)
+ 
+    # 4. Fix trailing commas — JSON doesn't allow them but Gemini adds them often
+    #    e.g.  ["a", "b",]  →  ["a", "b"]
+    #          {"a": 1,}    →  {"a": 1}
+    text = re.sub(r',\s*([}\]])', r'\1', text)
+ 
+    # 5. Parse
+    return json.loads(text)
 
 # ── COMPETITOR / FEATURE SEARCH ───────────────────────────────────────────────
 
