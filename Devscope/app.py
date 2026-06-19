@@ -826,7 +826,6 @@ def search_feature_research(feature_name, app_type):
 # ── ASYNC FEATURE ANALYSIS ────────────────────────────────────────────────────
 
 feature_analysis_cache = {}
-
 def analyze_feature_async(report_id, feature, app_context, stack):
     try:
         web_context = search_feature_context(feature['name'], app_context)
@@ -839,7 +838,7 @@ Feature to analyze: {feature['name']}
 Why it's needed: {feature['why']}
 Web research: {web_context}
 
-Analyze this feature deeply and return the JSON.
+Analyze this feature deeply and return the JSON. Output COMPLETE JSON only, no truncation.
             """}
         ]
         raw = call_groq(messages, max_tokens=1500)
@@ -873,7 +872,6 @@ Analyze this feature deeply and return the JSON.
         cache_key = f"{report_id}_{feature['name']}"
         feature_analysis_cache[cache_key] = {"status": "error", "error": str(e)}
         print(f"Feature analysis error for {feature['name']}: {e}")
-
 # ── IN-APP NOTIFICATIONS ──────────────────────────────────────────────────────
 
 def check_due_deadlines():
@@ -1489,16 +1487,26 @@ def generate_report():
 
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Here is the full conversation:\n{conversation}\n\nGENERATE_REPORT_NOW"}
+            {"role": "user", "content": f"Here is the full conversation:\n{conversation}\n\nGENERATE_REPORT_NOW\n\nCRITICAL: Output the COMPLETE JSON. Do not truncate. Every field must be present. The JSON must end with the closing }} brace. Do not stop mid-output."}
         ]
 
-        raw = call_groq(messages, max_tokens=4000)
+        raw = call_groq(messages, max_tokens=6000)
 
         try:
             report_data = parse_json_response(raw)
         except Exception as parse_err:
-            print(f"JSON PARSE ERROR: {parse_err}\nRAW: {raw}")
-            return jsonify({"error": "Failed to parse report. Try again."}), 500
+            print(f"First parse failed, retrying...\nRAW snippet: {raw[-200:]}")
+            messages_retry = messages + [
+                {"role": "assistant", "content": raw},
+                {"role": "user", "content": "The JSON was cut off. Continue from exactly where you stopped. Output ONLY the remaining JSON."}
+            ]
+            try:
+                raw2 = call_groq(messages_retry, max_tokens=3000)
+                raw_combined = raw.rstrip() + raw2.strip()
+                report_data = parse_json_response(raw_combined)
+            except Exception as retry_err:
+                print(f"JSON PARSE ERROR after retry: {retry_err}")
+                return jsonify({"error": "Failed to parse report. Try again."}), 500
 
         report_id = str(uuid.uuid4())
         conn = get_connection()
@@ -1576,7 +1584,7 @@ def generate_feature_report():
             {"role": "user", "content": (
                 f"Here is the full conversation:\n{conversation}\n\n"
                 f"Live research context:\n{web_context}\n\n"
-                f"GENERATE_FEATURE_REPORT_NOW"
+                f"GENERATE_FEATURE_REPORT_NOW\n\nCRITICAL: Output the COMPLETE JSON. Do not truncate. Every field must be present. The JSON must end with the closing }} brace. Do not stop mid-output."
             )}
         ]
 
