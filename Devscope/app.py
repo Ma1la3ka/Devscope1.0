@@ -712,42 +712,74 @@ def call_groq(messages, max_tokens=1024):
 
 import re
 import json
- 
+
 def parse_json_response(raw: str) -> dict:
-    """
-    Robustly extract and parse a JSON object from a Gemini response.
-    Handles:
-      - ```json ... ``` fences
-      - ``` ... ``` fences (no language tag)
-      - Leading/trailing whitespace or prose
-      - Trailing commas before } or ] (common Gemini mistake)
-      - Unicode escapes
-    """
     if not raw:
         raise ValueError("Empty response from model")
- 
-    # 1. Strip leading/trailing whitespace
+
     text = raw.strip()
- 
-    # 2. Remove ALL markdown code fences (handles ```json, ```JSON, ```, etc.)
-    #    Use a non-greedy match so we grab only what's inside the first fence block
+
+    # Strip markdown fences
     fence_match = re.search(r'```(?:json|JSON)?\s*([\s\S]*?)```', text)
     if fence_match:
         text = fence_match.group(1).strip()
- 
-    # 3. Extract the outermost { ... } block
-    #    (handles cases where the model adds prose before/after the JSON)
+
+    # Extract outermost { ... }
     brace_match = re.search(r'\{[\s\S]*\}', text)
     if brace_match:
         text = brace_match.group(0)
- 
-    # 4. Fix trailing commas — JSON doesn't allow them but Gemini adds them often
-    #    e.g.  ["a", "b",]  →  ["a", "b"]
-    #          {"a": 1,}    →  {"a": 1}
+    else:
+        # JSON was truncated — try to close it
+        text = _attempt_json_recovery(text)
+
+    # Fix trailing commas
     text = re.sub(r',\s*([}\]])', r'\1', text)
- 
-    # 5. Parse
+
     return json.loads(text)
+
+
+def _attempt_json_recovery(text: str) -> str:
+    """
+    If Gemini truncated mid-JSON, attempt to close open brackets/braces
+    so we can at least parse what we got.
+    """
+    # Remove the last incomplete line (likely cut mid-value)
+    lines = text.rstrip().split('\n')
+    while lines:
+        last = lines[-1].strip()
+        # Pop lines that are clearly incomplete (no closing quote/bracket)
+        if last and last[-1] not in ('}', ']', '"', ','):
+            lines.pop()
+        else:
+            break
+    text = '\n'.join(lines)
+
+    # Remove trailing comma if any
+    text = re.sub(r',\s*$', '', text.rstrip())
+
+    # Count unclosed braces and brackets, close them in order
+    stack = []
+    in_string = False
+    escape = False
+    for ch in text:
+        if escape:
+            escape = False
+            continue
+        if ch == '\\':
+            escape = True
+            continue
+        if ch == '"' and not escape:
+            in_string = not in_string
+        if not in_string:
+            if ch in ('{', '['):
+                stack.append('}' if ch == '{' else ']')
+            elif ch in ('}', ']'):
+                if stack and stack[-1] == ch:
+                    stack.pop()
+
+    # Close everything that's still open
+    text = text + ''.join(reversed(stack))
+    return text
 
 # ── COMPETITOR / FEATURE SEARCH ───────────────────────────────────────────────
 
@@ -1460,7 +1492,7 @@ def generate_report():
             {"role": "user", "content": f"Here is the full conversation:\n{conversation}\n\nGENERATE_REPORT_NOW"}
         ]
 
-        raw = call_groq(messages, max_tokens=2500)
+        raw = call_groq(messages, max_tokens=4000)
 
         try:
             report_data = parse_json_response(raw)
